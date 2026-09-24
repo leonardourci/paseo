@@ -22,7 +22,7 @@ export interface AttachmentPillContent {
   subtitle: string;
 }
 
-function getReviewSubtitle(count: number, t: TFunction): string {
+export function getReviewSubtitle(count: number, t: TFunction): string {
   return count === 1
     ? t("message.attachments.commentsOne")
     : t("message.attachments.commentsMany", { count });

@@ -32,6 +32,18 @@ export function getStreamItemMessageId(item: StreamItem): string {
   return item.kind === "assistant_message" ? (item.blockGroupId ?? item.id) : item.id;
 }
 
+const BLOCK_ROW_ID = /:block:(\d+)$/;
+
+export function getAssistantBlockRowId(messageId: string, blockIndex: number): string {
+  return `${messageId}:block:${blockIndex}`;
+}
+
+/** The Markdown block an assistant row renders, or null for a row that isn't one. */
+export function getAssistantBlockIndex(rowId: string): number | null {
+  const match = BLOCK_ROW_ID.exec(rowId);
+  return match ? Number(match[1]) : null;
+}
+
 /**
  * A block is reusable only when it still stands for the same source state. Text and
  * turn are what the reader sees; cursor and timestamp are what the timeline reads back
@@ -116,7 +128,7 @@ export function createStreamPresentation() {
         blockText += trailingNewlines;
       }
       const existing = previous?.[index];
-      const id = `${item.id}:block:${index}`;
+      const id = getAssistantBlockRowId(item.id, index);
       if (existing?.text === blockText && isReusableBlock(existing, item, id)) {
         blocks.push(existing);
         continue;

@@ -348,6 +348,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
+  const heldRowIdRef = useRef<string | null>(null);
   const historyStartReadyRef = useRef(false);
   const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
     createHistoryStartPaginationState,
@@ -413,6 +414,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   });
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+      // The hold already put the row back; adjusting for its new size would move it again.
+      if (item.key === heldRowIdRef.current) {
+        heldRowIdRef.current = null;
+        return false;
+      }
       const viewportHeight = instance.scrollRect?.height ?? 0;
       const scrollOffset = instance.scrollOffset ?? 0;
       const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
@@ -1151,6 +1157,21 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         scheduleStickToBottom();
       },
       scrollToMessage,
+      holdElementPosition: (element) => {
+        stopFollowingOutputFromUserIntent();
+        const virtualRow = element.closest<HTMLElement>("[data-index][data-history-row-id]");
+        heldRowIdRef.current = virtualRow?.dataset.historyRowId ?? null;
+        const top = element.getBoundingClientRect().top;
+        return () => {
+          const scrollContainer = scrollContainerRef.current;
+          if (!scrollContainer || !element.isConnected) {
+            return;
+          }
+          scrollContainer.scrollTop += element.getBoundingClientRect().top - top;
+          // Not a user scroll: landing on the bottom must not resume following.
+          lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        };
+      },
     };
     viewportRef.current = handle;
     return () => {
@@ -1164,6 +1185,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     forceStickToBottom,
     scheduleStickToBottom,
     scrollToMessage,
+    stopFollowingOutputFromUserIntent,
     viewportRef,
   ]);
 

@@ -39,6 +39,8 @@ interface UseAgentAutocompleteInput {
   onClientSlashCommand?: (command: ClientSlashCommand) => void;
   canExecuteClientSlashCommand?: boolean;
   pluginClientSlashCommands?: readonly PluginClientSlashCommand[];
+  /** Reads every `/` as mid-message, so it suggests skills and never commands. */
+  inlineOnly?: boolean;
 }
 
 interface AgentAutocompleteKeyPressEvent {
@@ -350,16 +352,14 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     onClientSlashCommand,
     canExecuteClientSlashCommand,
     pluginClientSlashCommands = [],
+    inlineOnly = false,
   } = input;
 
-  const activeSlashCommand = useMemo(
-    () =>
-      findActiveSlashCommand({
-        text: userInput,
-        cursorIndex,
-      }),
-    [cursorIndex, userInput],
-  );
+  const activeSlashCommand = useMemo(() => {
+    const command = findActiveSlashCommand({ text: userInput, cursorIndex });
+    if (!command || !inlineOnly) return command;
+    return { ...command, position: "inline" as const };
+  }, [cursorIndex, inlineOnly, userInput]);
   const showCommandAutocomplete = activeSlashCommand !== null;
   const commandFilterQuery = activeSlashCommand?.query ?? "";
 

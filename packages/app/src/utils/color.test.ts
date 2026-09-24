@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { desaturateHexColor, hexColorWithAlpha, parseHexColor } from "./color";
+import { colorWithAlpha, desaturateHexColor, hexColorWithAlpha, parseHexColor } from "./color";
 
 describe("parseHexColor", () => {
   it("parses six-digit hex", () => {
@@ -25,6 +25,18 @@ describe("hexColorWithAlpha", () => {
   it("rejects colors and alpha values outside its contract", () => {
     expect(() => hexColorWithAlpha("currentColor", 0.15)).toThrow();
     expect(() => hexColorWithAlpha("#3e704a", 1.1)).toThrow();
+  });
+});
+
+describe("colorWithAlpha", () => {
+  it("blends a CSS variable with color-mix", () => {
+    expect(colorWithAlpha("var(--colors-accent)", 0.22)).toBe(
+      "color-mix(in srgb, var(--colors-accent) 22%, transparent)",
+    );
+  });
+
+  it("applies the alpha to a hex colour", () => {
+    expect(colorWithAlpha("#20744A", 0.5)).toBe("rgba(32, 116, 74, 0.5)");
   });
 });
 

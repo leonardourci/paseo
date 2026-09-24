@@ -6,7 +6,7 @@ import {
   type MockAgentWorkspace,
 } from "../support/helpers/mock-agent";
 import { expectWorkspaceTabVisible, openSessions } from "../support/helpers/archive-tab";
-import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
+import { stubListCommands } from "../support/helpers/list-commands";
 import { getServerId } from "../support/helpers/server-id";
 import { switchWorkspaceViaSidebar } from "../support/helpers/workspace-ui";
 import { expectMobileAgentSidebarVisible } from "../support/helpers/sidebar";
@@ -103,50 +103,6 @@ async function getTopTestIdAtPoint(page: Page, x: number, y: number) {
     },
     [x, y],
   );
-}
-
-async function installListCommandsStub(page: Page): Promise<void> {
-  await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
-    const server = ws.connectToServer();
-
-    ws.onMessage((message) => {
-      server.send(message);
-    });
-
-    server.onMessage((message) => {
-      if (typeof message !== "string") {
-        ws.send(message);
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(message) as {
-          type?: string;
-          message?: {
-            type?: string;
-            payload?: {
-              commands?: unknown;
-              error?: string | null;
-            };
-          };
-        };
-        if (
-          parsed.type === "session" &&
-          parsed.message?.type === "list_commands_response" &&
-          parsed.message.payload
-        ) {
-          parsed.message.payload.commands = TEST_COMMANDS;
-          parsed.message.payload.error = null;
-          ws.send(JSON.stringify(parsed));
-          return;
-        }
-      } catch {
-        // Forward non-JSON frames unchanged.
-      }
-
-      ws.send(message);
-    });
-  });
 }
 
 async function openAppWideNewWorkspace(page: Page): Promise<void> {
@@ -360,7 +316,7 @@ function expectPopoverDoesNotDisappearAfterFirstVisible(frames: PopoverFrame[]):
 
 test.describe("Composer autocomplete", () => {
   test("stays visible after returning from app-wide routes", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const serverId = getServerId();
     const sessions: MockAgentWorkspace[] = [];
 
@@ -438,7 +394,7 @@ test.describe("Composer autocomplete", () => {
   test("does not flash at the wrong position on the first slash command paint", async ({
     page,
   }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -459,7 +415,7 @@ test.describe("Composer autocomplete", () => {
   });
 
   test("does not jump when deleting a slash command search", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -490,7 +446,7 @@ test.describe("Composer autocomplete", () => {
   test("shrinks to filtered slash command results without moving the bottom edge", async ({
     page,
   }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -518,7 +474,7 @@ test.describe("Composer autocomplete", () => {
   });
 
   test("stays visible while filtering slash command results", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -546,7 +502,7 @@ test.describe("Composer autocomplete", () => {
   });
 
   test("uses the live cursor when accepting a slash command", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -586,7 +542,7 @@ test.describe("Composer autocomplete", () => {
   });
 
   test("uses the live input when clicking a slash command", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -628,7 +584,7 @@ test.describe("Composer autocomplete", () => {
   });
 
   test("stays anchored to the composer when the desktop sidebar is open", async ({ page }) => {
-    await installListCommandsStub(page);
+    await stubListCommands(page, TEST_COMMANDS);
     const agent = await openReadyMockAgent(page);
 
     try {
@@ -658,7 +614,7 @@ test.describe("Composer autocomplete", () => {
     test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
     test("keeps the mobile agent sidebar above autocomplete", async ({ page }) => {
-      await installListCommandsStub(page);
+      await stubListCommands(page, TEST_COMMANDS);
       const agent = await openReadyMockAgent(page, { expectWorkspaceTab: false });
 
       try {

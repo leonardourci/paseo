@@ -87,6 +87,33 @@ function isListType(type: string | undefined): boolean {
   return type === "bullet_list" || type === "ordered_list";
 }
 
+/** The items at one level: those of every list directly in the container, in order. */
+function itemsIn(container: MarkdownNode): MarkdownNode[] {
+  return (container.children ?? [])
+    .filter((child) => isListType(child.type))
+    .flatMap((list) => list.children ?? []);
+}
+
+/**
+ * The list item's index path in its block: [2, 0] is the first item nested in the third. Each
+ * level counts on across sibling lists. Null inside a blockquote, where what follows an item
+ * would land inside the quote.
+ */
+export function getMarkdownListItemPath(node: MarkdownNode, parent: unknown): number[] | null {
+  const ancestors = toParentNodes(parent);
+  const path: number[] = [];
+  let item = node;
+  // An item's ancestors alternate: its list, then what holds the list (an item, or the body).
+  for (let level = 1; level < ancestors.length; level += 2) {
+    const container = ancestors[level];
+    if (container.type === "blockquote") return null;
+    path.unshift(itemsIn(container).indexOf(item));
+    if (container.type !== "list_item") break;
+    item = container;
+  }
+  return path;
+}
+
 function hasListItemAncestor(parent: unknown): boolean {
   return toParentNodes(parent).some((ancestor) => ancestor?.type === "list_item");
 }

@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { buildHostWorkspaceRoute } from "@/utils/host-routes";
 import { createTempGitRepo } from "./workspace";
 import { connectSeedClient, type SeedDaemonClient } from "./seed-client";
@@ -145,11 +145,14 @@ export async function attachFileFromMenu(
   await (await chooserPromise).setFiles(file);
 }
 
-export async function dropFileOnComposer(
-  page: Page,
-  file: { name: string; mimeType: string; buffer: Buffer },
-): Promise<void> {
-  const dataTransfer = await page.evaluateHandle(
+interface DroppedFile {
+  name: string;
+  mimeType: string;
+  buffer: Buffer;
+}
+
+export async function dropFileOn(target: Locator, file: DroppedFile): Promise<void> {
+  const dataTransfer = await target.page().evaluateHandle(
     ({ name, mimeType, base64 }) => {
       const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
       const droppedFile = new File([bytes], name, { type: mimeType });
@@ -164,22 +167,26 @@ export async function dropFileOnComposer(
     },
   );
 
+  await target.dispatchEvent("dragenter", { dataTransfer });
+  await target.dispatchEvent("dragover", { dataTransfer });
+  await target.dispatchEvent("drop", { dataTransfer });
+  await dataTransfer.dispose();
+}
+
+export async function dropFileOnComposer(page: Page, file: DroppedFile): Promise<void> {
   const composerRoot = page.getByTestId("message-input-root").filter({ visible: true }).first();
   await expect(composerRoot).toBeVisible({ timeout: 10_000 });
-  await composerRoot.dispatchEvent("dragenter", { dataTransfer });
-  await composerRoot.dispatchEvent("dragover", { dataTransfer });
-  await composerRoot.dispatchEvent("drop", { dataTransfer });
-  await dataTransfer.dispose();
+  await dropFileOn(composerRoot, file);
 }
 
 /** Hover to reveal the X button (hidden until hover on desktop web), then click by accessible label. */
 export async function removeAttachmentPill(
-  page: Page,
+  scope: Page | Locator,
   pillTestId: string,
   removeAccessibilityLabel: string,
 ): Promise<void> {
-  await page.getByTestId(pillTestId).first().hover();
-  await page.getByRole("button", { name: removeAccessibilityLabel }).first().click();
+  await scope.getByTestId(pillTestId).first().hover();
+  await scope.getByRole("button", { name: removeAccessibilityLabel }).first().click();
 }
 
 export async function expectGithubAttachmentPill(

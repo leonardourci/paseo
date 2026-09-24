@@ -10,6 +10,9 @@ function content(html: string) {
   document.body.append(row);
   return row;
 }
+function offsetAndText(range: Range): [number, string] {
+  return [range.startOffset, range.toString()];
+}
 function message(messageId: string, ...blocks: string[]) {
   const root = document.createElement("div");
   for (const block of blocks) {
@@ -63,5 +66,35 @@ it("matches whitespace across text nodes without inspecting hidden link destinat
   expect(findRenderedMatches(row, "hidden")).toEqual([]);
   expect(findRenderedMatches(row, "world line").map((range) => range.toString())).toEqual([
     "world\nline",
+  ]);
+});
+
+it("matches case in quote mode", () => {
+  const row = content('<div data-paseo-markdown-tag="p">Merge, then merge again</div>');
+  expect(findRenderedMatches(row, "merge").map(offsetAndText)).toEqual([
+    [0, "Merge"],
+    [12, "merge"],
+  ]);
+  expect(findRenderedMatches(row, "merge", { mode: "quote" }).map(offsetAndText)).toEqual([
+    [12, "merge"],
+  ]);
+});
+
+it("matches across list items in quote mode", () => {
+  const row = content(
+    '<ul data-paseo-markdown-tag="ul"><li data-paseo-markdown-tag="li"><span data-paseo-markdown-ignore="true">1.</span>first item</li><li data-paseo-markdown-tag="li">second item</li></ul>',
+  );
+  expect(findRenderedMatches(row, "item second")).toEqual([]);
+  expect(
+    findRenderedMatches(row, "item second", { mode: "quote" }).map((range) => range.toString()),
+  ).toEqual(["itemsecond"]);
+});
+
+it("finds overlapping occurrences in quote mode", () => {
+  const row = content('<div data-paseo-markdown-tag="p">aaa</div>');
+  expect(findRenderedMatches(row, "aa").map(offsetAndText)).toEqual([[0, "aa"]]);
+  expect(findRenderedMatches(row, "aa", { mode: "quote" }).map(offsetAndText)).toEqual([
+    [0, "aa"],
+    [1, "aa"],
   ]);
 });

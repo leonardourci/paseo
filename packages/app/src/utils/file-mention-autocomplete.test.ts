@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyFileMentionReplacement,
+  caretAfterFileMentionReplacement,
   findActiveFileMention,
   formatQuotedFileMentionPath,
 } from "./file-mention-autocomplete";
@@ -77,5 +78,23 @@ describe("applyFileMentionReplacement", () => {
       relativePath: 'src/"quoted".ts',
     });
     expect(next).toBe('"src/\\"quoted\\".ts"');
+  });
+});
+
+describe("caretAfterFileMentionReplacement", () => {
+  it("puts the caret right after the inserted path, keeping the text after it", () => {
+    const text = "see @src/com and more";
+    const cursorIndex = text.indexOf(" and");
+    const mention = findActiveFileMention({ text, cursorIndex });
+    if (!mention) throw new Error("Expected a file mention");
+    const nextText = applyFileMentionReplacement({
+      text,
+      mention,
+      relativePath: "src/components/chat.tsx",
+    });
+    const caret = caretAfterFileMentionReplacement({ previousText: text, cursorIndex, nextText });
+    expect(nextText.slice(0, caret)).toBe('see "src/components/chat.tsx"');
+    expect(nextText.slice(caret)).toBe(" and more");
+    expect(findActiveFileMention({ text: nextText, cursorIndex: caret })).toBeNull();
   });
 });

@@ -135,6 +135,25 @@ export function runAlternateSendAction(ctx: SendActionContext): void {
   }
 }
 
+interface QueueInputMessageContext {
+  value: string;
+  attachments: MessagePayload["attachments"];
+  hasExternalContent: boolean;
+  cwd: string;
+  onQueue: ((payload: MessagePayload) => void) | undefined;
+  replaceText: (text: string) => void;
+  onMinimizeHeight: () => void;
+}
+
+export function queueInputMessage(ctx: QueueInputMessageContext): void {
+  if (!ctx.onQueue) return;
+  const trimmed = ctx.value.trim();
+  if (!trimmed && ctx.attachments.length === 0 && !ctx.hasExternalContent) return;
+  ctx.onQueue({ text: trimmed, attachments: ctx.attachments, cwd: ctx.cwd });
+  ctx.replaceText("");
+  ctx.onMinimizeHeight();
+}
+
 export function runMessageInputKeyboardAction(
   action: MessageInputKeyboardActionKind,
   actions: MessageInputKeyboardActions,

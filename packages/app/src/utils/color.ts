@@ -78,6 +78,12 @@ export function hexColorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/** Web theme colours are CSS variables rather than hex, so those blend with `color-mix`. */
+export function colorWithAlpha(color: string, alpha: number): string {
+  if (color.startsWith("#")) return hexColorWithAlpha(color, alpha);
+  return `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`;
+}
+
 function toHexChannel(channel: number): string {
   const clamped = Math.min(255, Math.max(0, Math.round(channel * 255)));
   return clamped.toString(16).padStart(2, "0");

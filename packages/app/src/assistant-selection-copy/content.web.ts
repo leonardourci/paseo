@@ -18,7 +18,7 @@ import {
 
 const ASSISTANT_MESSAGE_SELECTOR = '[data-testid="assistant-message"]';
 const MESSAGE_ROW_SELECTOR = "[data-message-id]";
-const CHAT_SCROLL_SELECTOR = '[data-testid="agent-chat-scroll"]';
+export const CHAT_SCROLL_SELECTOR = '[data-testid="agent-chat-scroll"]';
 const messageRowSelector = (messageId: string) => `[data-message-id="${CSS.escape(messageId)}"]`;
 const CODE_BLOCK_SELECTOR = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="pre"]`;
 const CODE_REGION_SELECTOR = `${CODE_BLOCK_SELECTOR}, [${MARKDOWN_COPY_TAG_ATTRIBUTE}="code"]`;
@@ -65,8 +65,12 @@ export function createAssistantSelectionClipboardContent(
   if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
     return null;
   }
+  return createAssistantRangeClipboardContent(selection.getRangeAt(0));
+}
 
-  const range = selection.getRangeAt(0);
+export function createAssistantRangeClipboardContent(
+  range: Range,
+): MarkdownClipboardContent | null {
   const parts = selectedMessageParts(range);
   if (!parts) {
     return null;
