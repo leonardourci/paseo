@@ -34,6 +34,8 @@ import {
 } from "@/composer/pill-styles";
 import { getActiveMessageSubmissions } from "@/composer/submission/model";
 import { RewindComposerRestoreProvider } from "@/components/rewind/composer-restore";
+import { restoreOutputComments } from "@/output-comments/composer";
+import { OutputCommentsComposerProvider } from "@/output-comments/composer-provider";
 import { getProviderIcon } from "@/components/provider-icons";
 import { useToastHost, type ToastApi, type ToastState } from "@/components/toast-host";
 import type { WorkspaceComposerAttachment } from "@/attachments/types";
@@ -1302,9 +1304,10 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   );
 
   return (
-    <RewindComposerRestoreProvider
-      textSource={agentInputDraft.textSource}
-      setText={agentInputDraft.replaceText}
+    <ComposerRestoreProviders
+      serverId={serverId}
+      agentId={agentId}
+      agentInputDraft={agentInputDraft}
       onRewindComplete={handleRewindComplete}
     >
       <View style={styles.root}>
@@ -1318,9 +1321,42 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           </View>
         ) : null}
       </View>
-    </RewindComposerRestoreProvider>
+    </ComposerRestoreProviders>
   );
 });
+
+interface ComposerRestoreProvidersProps {
+  serverId: string;
+  agentId: string;
+  agentInputDraft: AgentInputDraft;
+  onRewindComplete: () => void;
+  children: ReactNode;
+}
+
+function ComposerRestoreProviders({
+  serverId,
+  agentId,
+  agentInputDraft,
+  onRewindComplete,
+  children,
+}: ComposerRestoreProvidersProps) {
+  const { textSource, replaceText } = agentInputDraft;
+  const restoreRewoundText = useCallback(
+    (text: string) => replaceText(restoreOutputComments({ serverId, agentId, text })),
+    [agentId, replaceText, serverId],
+  );
+  return (
+    <RewindComposerRestoreProvider
+      textSource={textSource}
+      setText={restoreRewoundText}
+      onRewindComplete={onRewindComplete}
+    >
+      <OutputCommentsComposerProvider textSource={textSource} setText={replaceText}>
+        {children}
+      </OutputCommentsComposerProvider>
+    </RewindComposerRestoreProvider>
+  );
+}
 
 function ChatSurface({
   children,

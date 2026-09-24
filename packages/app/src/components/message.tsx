@@ -112,12 +112,16 @@ import {
   type MarkdownCopyInlineTag,
 } from "@/assistant-selection-copy/markup";
 import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-message-render-limit";
+import { parseOutputComments } from "@/output-comments/fence";
+import { SentOutputComments } from "@/output-comments/sent-comments";
+import { useExpandedSentCommentsStore } from "@/output-comments/store";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
 interface UserMessageProps {
   serverId?: string;
   agentId?: string;
+  itemId: string;
   messageId?: string;
   message: string;
   images?: UserMessageImageAttachment[];
@@ -336,6 +340,11 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     maxWidth: "100%",
     cursor: "auto",
   },
+  // Open comments give their quotes the whole column instead of the typed text's width.
+  contentExpanded: {
+    width: "100%",
+    alignItems: "stretch",
+  },
   containerSpacing: {
     marginBottom: theme.spacing[1],
   },
@@ -375,6 +384,9 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     flexWrap: "wrap",
   },
   imagePreviewSpacing: {
+    marginBottom: theme.spacing[2],
+  },
+  sentCommentsSpacing: {
     marginBottom: theme.spacing[2],
   },
   copyButton: {
@@ -426,6 +438,7 @@ const MESSAGE_TEXT_DATASET = { messageText: "true" };
 export const UserMessage = memo(function UserMessage({
   serverId,
   agentId,
+  itemId,
   messageId,
   message,
   images = [],
@@ -448,6 +461,11 @@ export const UserMessage = memo(function UserMessage({
     [lightboxMetadata],
   );
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
+  const parsedMessage = useMemo(() => parseOutputComments(message), [message]);
+  const hasVisibleText = parsedMessage.rest.trim().length > 0;
+  const isCommentsExpanded = useExpandedSentCommentsStore((state) => state.itemIds.has(itemId));
+  const toggleExpanded = useExpandedSentCommentsStore((state) => state.toggle);
+  const toggleComments = useCallback(() => toggleExpanded(itemId), [itemId, toggleExpanded]);
   const hasText = message.trim().length > 0;
   const hasImages = images.length > 0;
   const hasAttachments = attachments.length > 0;
@@ -460,7 +478,7 @@ export const UserMessage = memo(function UserMessage({
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
-  const getMessageContent = useCallback(() => message, [message]);
+  const getMessageContent = useCallback(() => parsedMessage.rest, [parsedMessage.rest]);
   const handleRewind = useCallback(
     (input: { mode: RewindMode; rewoundText: string }) => {
       return rewindMutation.rewindAgent(input);
@@ -478,6 +496,13 @@ export const UserMessage = memo(function UserMessage({
       ],
     ],
     [resolvedDisableOuterSpacing, isFirstInGroup, isLastInGroup],
+  );
+  const contentStyle = useMemo(
+    () => [
+      userMessageStylesheet.content,
+      isCommentsExpanded ? userMessageStylesheet.contentExpanded : null,
+    ],
+    [isCommentsExpanded],
   );
   const imagePreviewContainerStyle = useMemo(
     () => [
@@ -506,7 +531,7 @@ export const UserMessage = memo(function UserMessage({
   return (
     <View style={containerStyle} testID="user-message" aria-busy={isPending}>
       <View
-        style={userMessageStylesheet.content}
+        style={contentStyle}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
@@ -541,9 +566,18 @@ export const UserMessage = memo(function UserMessage({
               })}
             </View>
           ) : null}
-          {hasText ? (
+          {parsedMessage.comments.length > 0 ? (
+            <SentOutputComments
+              itemId={itemId}
+              comments={parsedMessage.comments}
+              isExpanded={isCommentsExpanded}
+              onToggle={toggleComments}
+              style={hasVisibleText ? userMessageStylesheet.sentCommentsSpacing : undefined}
+            />
+          ) : null}
+          {hasVisibleText ? (
             <Text selectable style={userMessageStylesheet.text} dataSet={MESSAGE_TEXT_DATASET}>
-              {message}
+              {parsedMessage.rest}
             </Text>
           ) : null}
         </View>
@@ -564,11 +598,13 @@ export const UserMessage = memo(function UserMessage({
                 onRewind={handleRewind}
               />
             ) : null}
-            <TurnCopyButton
-              getContent={getMessageContent}
-              containerStyle={userMessageStylesheet.copyButton}
-              accessibilityLabel={t("message.actions.copyMessage")}
-            />
+            {hasVisibleText ? (
+              <TurnCopyButton
+                getContent={getMessageContent}
+                containerStyle={userMessageStylesheet.copyButton}
+                accessibilityLabel={t("message.actions.copyMessage")}
+              />
+            ) : null}
           </View>
         ) : null}
       </View>

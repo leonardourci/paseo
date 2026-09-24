@@ -1947,6 +1947,20 @@ export const ja: TranslationResources = {
       saveAccessibility: "レビューコメントを保存",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "コメント",
+      quote: "引用",
+    },
+    label: "コメント {{number}}",
+    inputLabel: "コメント",
+    placeholder: "コメントを追加",
+    remove: "コメントを削除",
+    sentLabel: "送信済みのコメント",
+    composerTitle: "返答へのコメント",
+    show: "コメントを表示",
+    hide: "コメントを非表示",
+  },
   settings: {
     title: "設定",
     loading: "設定を読み込み中...",

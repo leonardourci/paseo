@@ -1960,6 +1960,20 @@ export const ru: TranslationResources = {
       saveAccessibility: "Сохранить комментарий к ревью",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "Комментировать",
+      quote: "Цитировать",
+    },
+    label: "Комментарий {{number}}",
+    inputLabel: "Комментарий",
+    placeholder: "Добавить комментарий",
+    remove: "Удалить комментарий",
+    sentLabel: "Отправленный комментарий",
+    composerTitle: "Комментарии к ответу",
+    show: "Показать комментарии",
+    hide: "Скрыть комментарии",
+  },
   settings: {
     title: "Настройки",
     loading: "Загрузка настроек...",

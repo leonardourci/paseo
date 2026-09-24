@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import type { MessagePayload } from "@/composer/types";
 import {
   applyDictationTranscript,
   computeCanStartDictation,
+  queueInputMessage,
   resolveActiveSendBehavior,
   resolveComposerSurfacePresentation,
   runAlternateSendAction,
@@ -272,6 +274,28 @@ describe("composer send behavior", () => {
 
     expect(defaultAction.calls).toEqual(["queue"]);
     expect(alternateAction.calls).toEqual(["send"]);
+  });
+
+  it("queues content held outside the text, such as output comments, like typed text", () => {
+    const queued: MessagePayload[] = [];
+    const replaced: string[] = [];
+    const queueEmpty = (hasExternalContent: boolean) =>
+      queueInputMessage({
+        value: "  ",
+        attachments: [],
+        hasExternalContent,
+        cwd: "/repo",
+        onQueue: (payload) => queued.push(payload),
+        replaceText: (text) => replaced.push(text),
+        onMinimizeHeight: () => undefined,
+      });
+
+    queueEmpty(false);
+    expect(queued).toEqual([]);
+
+    queueEmpty(true);
+    expect(queued).toEqual([{ text: "", attachments: [], cwd: "/repo" }]);
+    expect(replaced).toEqual([""]);
   });
 });
 

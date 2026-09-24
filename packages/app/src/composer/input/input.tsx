@@ -76,6 +76,7 @@ import {
 import {
   applyDictationTranscript,
   computeCanStartDictation,
+  queueInputMessage,
   resolveComposerSurfacePresentation,
   runAlternateSendAction,
   runDefaultSendAction,
@@ -940,24 +941,6 @@ function sendMessageImpl(ctx: SendMessageContext): void {
   }
 }
 
-interface QueueMessageContext {
-  value: string;
-  attachments: ComposerAttachment[];
-  cwd: string;
-  onQueue: ((payload: MessagePayload) => void) | undefined;
-  replaceText: (text: string) => void;
-  onMinimizeHeight: () => void;
-}
-
-function queueMessageImpl(ctx: QueueMessageContext): void {
-  if (!ctx.onQueue) return;
-  const trimmed = ctx.value.trim();
-  if (!trimmed && ctx.attachments.length === 0) return;
-  ctx.onQueue({ text: trimmed, attachments: ctx.attachments, cwd: ctx.cwd });
-  ctx.replaceText("");
-  ctx.onMinimizeHeight();
-}
-
 function computeIsRealtimeVoiceForAgent(
   voice: { isVoiceModeForAgent: (serverId: string, agentId: string) => boolean } | null | undefined,
   voiceServerId: string | undefined,
@@ -1532,15 +1515,16 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const handleQueueMessage = useCallback(
       () =>
-        queueMessageImpl({
+        queueInputMessage({
           value: textInputRef.current?.getText() ?? valueRef.current,
           attachments,
+          hasExternalContent,
           cwd,
           onQueue,
           replaceText,
           onMinimizeHeight: minimizeInputHeight,
         }),
-      [attachments, cwd, onQueue, replaceText, minimizeInputHeight],
+      [attachments, cwd, hasExternalContent, onQueue, replaceText, minimizeInputHeight],
     );
 
     const handleDefaultSendAction = useCallback(() => {

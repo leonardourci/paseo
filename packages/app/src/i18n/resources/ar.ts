@@ -1927,6 +1927,20 @@ export const ar: TranslationResources = {
       saveAccessibility: "حفظ تعليق المراجعة",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "تعليق",
+      quote: "اقتباس",
+    },
+    label: "التعليق {{number}}",
+    inputLabel: "تعليق",
+    placeholder: "أضف تعليقا",
+    remove: "إزالة التعليق",
+    sentLabel: "تعليق مرسل",
+    composerTitle: "تعليقات على الرد",
+    show: "إظهار التعليقات",
+    hide: "إخفاء التعليقات",
+  },
   settings: {
     title: "إعدادات",
     loading: "جارٍ تحميل الإعدادات...",

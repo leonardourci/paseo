@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { DaemonClient, FetchAgentsEntry } from "@getpaseo/client/internal/daemon-client";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
@@ -9,6 +9,8 @@ import { isAgentArchiving, setAgentArchiving } from "@/hooks/use-archive-agent";
 import { queryClient } from "@/data/query-client";
 import { createUserMessage } from "@/types/stream";
 import { AgentStoreProjection } from "@/runtime/directory-sync/internal/agent-store";
+import { useOutputCommentsStore } from "@/output-comments/store";
+import { buildDraftStoreKey } from "@/stores/draft-keys";
 
 function createAgentPayload(
   input: Partial<Omit<AgentSnapshotPayload, "labels">> & {
@@ -327,5 +329,32 @@ describe("replaceFetchedAgentDirectory", () => {
     });
 
     store.clearSession(serverId);
+  });
+});
+
+describe("AgentStoreProjection.removeFromDirectory", () => {
+  afterEach(() => {
+    useOutputCommentsStore.setState({ drafts: {} });
+  });
+
+  it("clears the removed agent's pending output comments along with its draft", () => {
+    const draftKey = (agentId: string) => buildDraftStoreKey({ serverId: "server-1", agentId });
+    const anchor = {
+      sourceItemId: "a1",
+      startBlock: 0,
+      endBlock: 0,
+      quote: "alpha",
+      occurrence: 0,
+      isCode: false,
+    };
+    const { addComment } = useOutputCommentsStore.getState();
+    addComment({ ...anchor, draftKey: draftKey("removed") }, "gone");
+    const kept = addComment({ ...anchor, draftKey: draftKey("kept") }, "stays");
+
+    new AgentStoreProjection("server-1").removeFromDirectory("removed");
+
+    expect(useOutputCommentsStore.getState().drafts).toEqual({
+      [draftKey("kept")]: [{ ...anchor, id: kept, note: "stays" }],
+    });
   });
 });

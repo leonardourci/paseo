@@ -1937,6 +1937,20 @@ export const ko: TranslationResources = {
       saveAccessibility: "리뷰 댓글 저장",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "댓글",
+      quote: "인용",
+    },
+    label: "댓글 {{number}}",
+    inputLabel: "댓글",
+    placeholder: "댓글 추가",
+    remove: "댓글 제거",
+    sentLabel: "보낸 댓글",
+    composerTitle: "답변에 대한 댓글",
+    show: "댓글 표시",
+    hide: "댓글 숨기기",
+  },
   settings: {
     title: "설정",
     loading: "설정 불러오는 중...",

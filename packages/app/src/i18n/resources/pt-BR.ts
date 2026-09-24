@@ -1960,6 +1960,20 @@ export const ptBR: TranslationResources = {
       saveAccessibility: "Salvar comentário de revisão",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "Comentar",
+      quote: "Citar",
+    },
+    label: "Comentário {{number}}",
+    inputLabel: "Comentário",
+    placeholder: "Adicione um comentário",
+    remove: "Remover comentário",
+    sentLabel: "Comentário enviado",
+    composerTitle: "Comentários na resposta",
+    show: "Mostrar comentários",
+    hide: "Ocultar comentários",
+  },
   settings: {
     title: "Configurações",
     loading: "Carregando configurações...",

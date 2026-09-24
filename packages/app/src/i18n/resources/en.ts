@@ -1952,6 +1952,20 @@ export const en = {
       saveAccessibility: "Save review comment",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "Comment",
+      quote: "Quote",
+    },
+    label: "Comment {{number}}",
+    inputLabel: "Comment",
+    placeholder: "Add a comment",
+    remove: "Remove comment",
+    sentLabel: "Sent comment",
+    composerTitle: "Comments on the output",
+    show: "Show comments",
+    hide: "Hide comments",
+  },
   settings: {
     title: "Settings",
     loading: "Loading settings...",

@@ -132,6 +132,7 @@ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
 import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
 import { getFileTypeLabel } from "@/attachments/file-types";
+import { getReviewSubtitle } from "@/attachments/attachment-pill-content";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import {
   AttachmentFrame,
@@ -161,6 +162,13 @@ import {
   resolveWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
 } from "@/attachments/workspace-file-drag";
+import {
+  placeQueuedOutputComments,
+  restoreOutputComments,
+  useComposerOutputComments,
+} from "@/output-comments/composer";
+import { OutputCommentsComposerPill } from "@/output-comments/composer-pill";
+import { parseOutputComments } from "@/output-comments/fence";
 
 const composerImageAttachmentPersister: Pick<
   AttachmentPersister,
@@ -347,6 +355,7 @@ interface PendingFileAttachment {
 interface RenderAttachmentTrayArgs {
   selectedAttachments: ComposerAttachment[];
   pendingFiles: PendingFileAttachment[];
+  outputCommentCount: number;
   isComposerLocked: boolean;
   handleOpenAttachment: (attachment: ComposerAttachment) => void;
   handleRemoveAttachment: (index: number) => void;
@@ -363,14 +372,18 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
   const {
     selectedAttachments,
     pendingFiles,
+    outputCommentCount,
     isComposerLocked,
     handleOpenAttachment,
     handleRemoveAttachment,
     labels,
   } = args;
-  if (selectedAttachments.length === 0 && pendingFiles.length === 0) return null;
+  if (selectedAttachments.length === 0 && pendingFiles.length === 0 && outputCommentCount === 0) {
+    return null;
+  }
   return (
     <View style={styles.attachmentTray} testID="composer-attachment-tray">
+      {outputCommentCount > 0 ? <OutputCommentsComposerPill count={outputCommentCount} /> : null}
       {selectedAttachments.map((attachment, index) =>
         renderComposerAttachmentPill({
           attachment,
@@ -703,11 +716,16 @@ function QueuedMessageRow({
   const handleSendNow = useCallback(() => {
     onSendNow(item.id);
   }, [onSendNow, item.id]);
+  const { t } = useTranslation();
+  const { comments, rest } = useMemo(() => parseOutputComments(item.text), [item.text]);
   return (
-    <View style={styles.queueItem}>
+    <View style={styles.queueItem} testID="queued-message">
       <Text style={styles.queueText} numberOfLines={2} ellipsizeMode="tail">
-        {item.text}
+        {rest}
       </Text>
+      {comments.length > 0 ? (
+        <Text style={styles.queueCommentCount}>{getReviewSubtitle(comments.length, t)}</Text>
+      ) : null}
       <View style={styles.queueActions}>
         <Pressable
           onPress={handleEdit}
@@ -1320,6 +1338,11 @@ function ComposerContentImpl({
     () => textSource.getSnapshot().trim().length > 0,
     () => textSource.getSnapshot().trim().length > 0,
   );
+  const { count: outputCommentCount, prepare: prepareOutputComments } = useComposerOutputComments({
+    serverId,
+    agentId,
+  });
+  const hasComposerExternalContent = hasExternalContent || outputCommentCount > 0;
   const setUserInput = onChangeText;
   const workspaceAttachments = useWorkspaceAttachmentsForScopes(attachmentScopeKeys);
   const {
@@ -1628,13 +1651,16 @@ function ComposerContentImpl({
 
   const queueMessage = useCallback(
     (queuedMessage: string, queuedAttachments: ComposerAttachment[]) => {
+      const outgoing = prepareOutputComments(queuedMessage);
       const result = queueComposerMessage({
         agentId,
-        text: queuedMessage,
+        text: outgoing.text,
         attachments: queuedAttachments,
+        lastOutputId: outgoing.lastOutputId,
         queue: queueWriter,
       });
       if (!result.queued) return;
+      outgoing.markSent();
 
       replaceUserInput("");
       setSelectedAttachments([]);
@@ -1644,6 +1670,7 @@ function ComposerContentImpl({
     [
       agentId,
       clearSentAttachments,
+      prepareOutputComments,
       queueWriter,
       resetSuppression,
       setSelectedAttachments,
@@ -1660,7 +1687,7 @@ function ComposerContentImpl({
       const result = await submitAgentInput({
         message: outgoingMessage,
         attachments: outgoingAttachments,
-        hasExternalContent,
+        hasExternalContent: hasComposerExternalContent,
         allowEmptySubmit,
         forceSend,
         submitBehavior,
@@ -1675,7 +1702,9 @@ function ComposerContentImpl({
           if (submitBehavior !== "preserve-and-lock") {
             beginSubmit(submitAttachments);
           }
-          await submitMessage(submitText, submitAttachments);
+          const outgoing = prepareOutputComments(submitText);
+          await submitMessage(outgoing.text, submitAttachments);
+          outgoing.markSent();
         },
         clearDraft,
         setUserInput: replaceUserInput,
@@ -1699,8 +1728,9 @@ function ComposerContentImpl({
       beginSubmit,
       clearDraft,
       completeSubmit,
-      hasExternalContent,
+      hasComposerExternalContent,
       isAgentRunning,
+      prepareOutputComments,
       queueMessage,
       setSelectedAttachments,
       replaceUserInput,
@@ -1938,10 +1968,17 @@ function ComposerContentImpl({
         queue: queueWriter,
       });
       if (!result) return;
-      replaceUserInput(result.text);
+      replaceUserInput(
+        restoreOutputComments({
+          serverId,
+          agentId,
+          text: result.text,
+          lastOutputId: result.lastOutputId,
+        }),
+      );
       setSelectedAttachments(result.attachments);
     },
-    [agentId, queueWriter, replaceUserInput, setSelectedAttachments],
+    [agentId, queueWriter, replaceUserInput, serverId, setSelectedAttachments],
   );
 
   const handleSendQueuedNow = useCallback(
@@ -1952,15 +1989,18 @@ function ComposerContentImpl({
         agentId,
         messageId: id,
         queue: queueWriter,
-        submitMessage: ({ text, attachments: queuedAttachments }) =>
-          submitMessage(text, queuedAttachments),
+        submitMessage: ({ text, attachments: queuedAttachments, lastOutputId }) =>
+          submitMessage(
+            placeQueuedOutputComments({ serverId, agentId, text, lastOutputId }),
+            queuedAttachments,
+          ),
         failedToSendMessage: t("composer.errors.failedToSend"),
       });
       if (result.status === "failed") {
         setSendError(result.errorMessage);
       }
     },
-    [agentId, queueWriter, submitMessage, t],
+    [agentId, queueWriter, serverId, submitMessage, t],
   );
 
   const handleQueue = useCallback(
@@ -1991,7 +2031,7 @@ function ComposerContentImpl({
     ],
   );
 
-  const hasSendableContent = hasText || selectedAttachments.length > 0;
+  const hasSendableContent = hasText || selectedAttachments.length > 0 || outputCommentCount > 0;
 
   // Handle keyboard navigation for command autocomplete.
   const handleCommandKeyPress = useCallback(
@@ -2309,6 +2349,7 @@ function ComposerContentImpl({
       renderAttachmentTray({
         selectedAttachments,
         pendingFiles,
+        outputCommentCount,
         isComposerLocked,
         handleOpenAttachment,
         handleRemoveAttachment,
@@ -2326,6 +2367,7 @@ function ComposerContentImpl({
       handleOpenAttachment,
       handleRemoveAttachment,
       isComposerLocked,
+      outputCommentCount,
       selectedAttachments,
       pendingFiles,
       t,
@@ -2443,7 +2485,7 @@ function ComposerContentImpl({
                   value={textSource.getSnapshot()}
                   onChangeText={setUserInput}
                   onSubmit={handleSubmit}
-                  hasExternalContent={hasExternalContent}
+                  hasExternalContent={hasComposerExternalContent}
                   allowEmptySubmit={allowEmptySubmit}
                   submitButtonAccessibilityLabel={submitButtonAccessibilityLabel}
                   submitButtonTestID={submitButtonTestID}
@@ -2629,6 +2671,10 @@ const styles = StyleSheet.create((theme: Theme) => ({
     flex: 1,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
+  },
+  queueCommentCount: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
   },
   queueActions: {
     flexDirection: "row",

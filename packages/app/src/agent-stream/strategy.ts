@@ -54,6 +54,11 @@ export interface StreamViewportHandle {
   scrollToBottom: (reason?: BottomAnchorLocalRequest["reason"]) => void;
   prepareForViewportChange: () => void;
   scrollToMessage?: (messageId: string, occurrence?: ScrollToMessageOccurrence) => void;
+  /**
+   * Stops following output, as scrolling up does, and returns a call that puts `element` back
+   * where it is on screen now.
+   */
+  holdElementPosition?: (element: HTMLElement) => () => void;
 }
 
 export interface StreamSegmentRenderers {

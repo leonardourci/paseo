@@ -1975,6 +1975,20 @@ export const es: TranslationResources = {
       saveAccessibility: "Guardar comentario de revisión",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "Comentar",
+      quote: "Citar",
+    },
+    label: "Comentario {{number}}",
+    inputLabel: "Comentario",
+    placeholder: "Agrega un comentario",
+    remove: "Quitar comentario",
+    sentLabel: "Comentario enviado",
+    composerTitle: "Comentarios sobre la respuesta",
+    show: "Mostrar comentarios",
+    hide: "Ocultar comentarios",
+  },
   settings: {
     title: "Ajustes",
     loading: "Cargando configuración...",

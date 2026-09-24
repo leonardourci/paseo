@@ -23,6 +23,8 @@ export interface QueuedComposerMessage {
   id: string;
   text: string;
   attachments: ComposerAttachment[];
+  /** The newest output when queued; the text's output comments count back from it. */
+  lastOutputId?: string;
 }
 
 export interface AttachmentPersister {
@@ -235,6 +237,7 @@ export interface QueueComposerMessageInput {
   agentId: string;
   text: string;
   attachments: ComposerAttachment[];
+  lastOutputId?: string;
   queue: QueueWriter;
 }
 
@@ -251,6 +254,7 @@ export function queueComposerMessage(input: QueueComposerMessageInput): QueueCom
     id: generateMessageId(),
     text: trimmed,
     attachments: input.attachments,
+    lastOutputId: input.lastOutputId,
   };
   input.queue.write((prev) => {
     const next = new Map(prev);
@@ -269,6 +273,7 @@ export interface EditQueuedComposerMessageInput {
 export interface EditQueuedComposerMessageResult {
   text: string;
   attachments: UserComposerAttachment[];
+  lastOutputId?: string;
 }
 
 export function editQueuedComposerMessage(
@@ -287,6 +292,7 @@ export function editQueuedComposerMessage(
   return {
     text: item.text,
     attachments: userAttachmentsOnly(item.attachments),
+    lastOutputId: item.lastOutputId,
   };
 }
 
@@ -294,7 +300,9 @@ export interface SendQueuedComposerMessageNowInput {
   agentId: string;
   messageId: string;
   queue: QueueWriter;
-  submitMessage: (input: { text: string; attachments: ComposerAttachment[] }) => Promise<void>;
+  submitMessage: (
+    input: Pick<QueuedComposerMessage, "text" | "attachments" | "lastOutputId">,
+  ) => Promise<void>;
   failedToSendMessage?: string;
 }
 
@@ -317,7 +325,11 @@ export async function sendQueuedComposerMessageNow(
     return next;
   });
   try {
-    await input.submitMessage({ text: item.text, attachments: item.attachments });
+    await input.submitMessage({
+      text: item.text,
+      attachments: item.attachments,
+      lastOutputId: item.lastOutputId,
+    });
     return { status: "submitted" };
   } catch (error) {
     input.queue.write((prev) => {

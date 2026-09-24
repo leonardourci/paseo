@@ -1906,6 +1906,20 @@ export const zhCN: TranslationResources = {
       saveAccessibility: "保存 review 评论",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "评论",
+      quote: "引用",
+    },
+    label: "评论 {{number}}",
+    inputLabel: "评论",
+    placeholder: "添加评论",
+    remove: "移除评论",
+    sentLabel: "已发送的评论",
+    composerTitle: "对回复的评论",
+    show: "显示评论",
+    hide: "隐藏评论",
+  },
   settings: {
     title: "设置",
     loading: "正在加载设置...",

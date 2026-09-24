@@ -1980,6 +1980,20 @@ export const fr: TranslationResources = {
       saveAccessibility: "Enregistrer le commentaire de l'avis",
     },
   },
+  outputComments: {
+    toolbar: {
+      comment: "Commenter",
+      quote: "Citer",
+    },
+    label: "Commentaire {{number}}",
+    inputLabel: "Commentaire",
+    placeholder: "Ajouter un commentaire",
+    remove: "Supprimer le commentaire",
+    sentLabel: "Commentaire envoyé",
+    composerTitle: "Commentaires sur la réponse",
+    show: "Afficher les commentaires",
+    hide: "Masquer les commentaires",
+  },
   settings: {
     title: "Paramètres",
     loading: "Chargement des paramètres...",
