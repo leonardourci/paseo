@@ -122,7 +122,8 @@ const PendingOutputCommentSchema: z.ZodType<PendingOutputComment> = z.strictObje
   isCode: z.boolean(),
   endItem: z.array(z.number().int().nonnegative()).optional(),
   note: z.string(),
-  imageIds: z.array(z.string()),
+  // Comments saved before notes held images have none.
+  imageIds: z.array(z.string()).default([]),
 });
 
 const PersistedOutputCommentsSchema: z.ZodType<PersistedOutputComments> = z.strictObject({

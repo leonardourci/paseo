@@ -315,9 +315,9 @@ describe("useOutputCommentsStore persistence", () => {
     expect(pendingComments()).toEqual([{ ...inItem, id, note: "why?", imageIds: ["img-1"] }]);
   });
 
-  it("loads comments saved before they recorded a list item", async () => {
+  it("loads comments saved before they recorded images or a list item", async () => {
     const saved = JSON.stringify({
-      state: { drafts: { [DRAFT_KEY]: [{ ...FIRST, id: "c1", note: "why?", imageIds: [] }] } },
+      state: { drafts: { [DRAFT_KEY]: [{ ...FIRST, id: "c1", note: "why?" }] } },
       version: 1,
     });
     await AsyncStorage.setItem(STORAGE_NAME, saved);
