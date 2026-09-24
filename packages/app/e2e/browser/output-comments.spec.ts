@@ -8,15 +8,23 @@ import {
   expectComposerDraft,
   expectQueuedMessageButton,
   fillComposerDraft,
+  removeAttachmentPill,
   sendDraftToQueue,
 } from "../support/helpers/composer";
+import { stubListCommands } from "../support/helpers/list-commands";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import {
   assistantMessageText,
+  badgeOnTopAt,
+  cardImages,
+  cardPlaces,
   commentOn,
   composerPill,
+  composerTray,
   deliveredCards,
+  dispatchInputAtOnce,
   doubleClickAssistantText,
+  dropImage,
   expectActiveCards,
   expectBadges,
   expectCommentHighlights,
@@ -25,13 +33,21 @@ import {
   expectNotes,
   expectQuoteInView,
   expectSentComments,
+  focusedNote,
   gapBelowVirtualRow,
   historyRow,
+  hoverBadge,
   leaveFocusedField,
+  mentionPopover,
   noteInput,
   openAnsweredAgent,
+  pasteImage,
+  pasteOnDocument,
+  pasteOverAssistantText,
   pendingCards,
   queuedMessageRow,
+  removeAllComments,
+  removeAllCommentsAnswering,
   rowOverhang,
   scrollChatUpTo,
   scrollSentToggleToTop,
@@ -39,12 +55,15 @@ import {
   sentBubbleSlack,
   sentCommentCards,
   sentCommentsToggle,
+  sentImages,
   sentUserMessage,
   settledToggleEdges,
   textBadge,
   textBadges,
   tintedQuotes,
   toggleShift,
+  trayImages,
+  typeOverAssistantText,
 } from "../support/helpers/output-comments";
 import {
   expectReconnectingToastGone,
@@ -60,6 +79,17 @@ const RESPONSE = [
   "Then the parser checks each entry, the Parser logs failures, and the parser retries.",
   "",
   "Retries stop after three attempts.",
+].join("\n");
+
+const LIST_RESPONSE = [
+  "The parser runs in three passes:",
+  "",
+  "- Tokenize the source",
+  "- Build the tree",
+  "  - Link each node",
+  "  - Check each link",
+  "- Emit the output",
+  "1. Ship the build",
 ].join("\n");
 
 const CONFIG_QUOTE = "The parser reads the [config] file before anything else.";
@@ -82,21 +112,31 @@ const LONG_RESPONSE = [
   ...Array.from({ length: 30 }, (_, index) => `Filler paragraph ${index}.`),
 ].join("\n\n");
 
-test("typing over selected output starts a comment that survives a reload", async ({ page }) => {
+test("typing over selected output starts a comment that takes every key and survives a reload", async ({
+  page,
+}) => {
   const agent = await openAnsweredAgent(page, {
     repoPrefix: "output-comments-type-",
     response: RESPONSE,
   });
   try {
-    await commentOn(page, { quote: "config", note: "why this file?" });
+    await typeOverAssistantText(page, "config", "why this file?");
 
     await expect(noteInput(pendingCards(page))).toBeFocused();
     await expectNotes(page, ["why this file?"]);
 
-    await commentOn(page, { quote: "three", note: "two\nlines" });
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "three" });
+    await dispatchInputAtOnce(page, [
+      ..."twox",
+      "Backspace",
+      "Enter",
+      ..."lines",
+      { paste: " pasted" },
+    ]);
 
     await expect(noteInput(pendingCards(page).nth(1))).toBeFocused();
-    await expectNotes(page, ["why this file?", "two\nlines"]);
+    await expectNotes(page, ["why this file?", "two\nlines pasted"]);
     await expectBadges(page, [1, 2]);
     await expectComposerPill(page, "2 comments");
     await expectCommentHighlights(page, [
@@ -107,17 +147,47 @@ test("typing over selected output starts a comment that survives a reload", asyn
     // The store persists asynchronously; reloading before it lands would lose the note.
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("@paseo:output-comments")))
-      .toContain('"note":"two\\nlines"');
+      .toContain('"note":"two\\nlines pasted"');
     await page.reload();
 
     await expect(pendingCards(page)).toHaveCount(2, { timeout: 30_000 });
-    await expectNotes(page, ["why this file?", "two\nlines"]);
+    await expectNotes(page, ["why this file?", "two\nlines pasted"]);
     await expectBadges(page, [1, 2]);
     await expectComposerPill(page, "2 comments");
     await expectCommentHighlights(page, [
       { text: CONFIG_QUOTE, tint: "pending" },
       { text: THREE_QUOTE, tint: "pending" },
     ]);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("pasting text over selected output starts a comment or joins the one on that text", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-paste-",
+    response: RESPONSE,
+  });
+  try {
+    await leaveFocusedField(page);
+    await pasteOnDocument(page, { text: "ignored" });
+    await selectAssistantText(page, { text: "config" });
+    await pasteOnDocument(page, {});
+    // Had either paste started a comment, this one would join it or sit beside it.
+    await pasteOnDocument(page, { text: "why this\r\nfile?" });
+
+    await expect(noteInput(pendingCards(page))).toBeFocused();
+    await expectNotes(page, ["why this\nfile?"]);
+    await expectCommentHighlights(page, [{ text: CONFIG_QUOTE, tint: "active" }]);
+    await page.keyboard.type(" really");
+    await expectNotes(page, ["why this\nfile? really"]);
+
+    await pasteOverAssistantText(page, "config", { text: "and this" });
+
+    await expect(noteInput(pendingCards(page))).toBeFocused();
+    await expectNotes(page, ["why this\nfile? really\nand this"]);
   } finally {
     await agent.cleanup();
   }
@@ -229,6 +299,28 @@ test("a note keeps its edits until it is emptied or removed", async ({ page }) =
   }
 });
 
+test("badges on overlapping quotes pile and spread on hover", async ({ page }) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-piles-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "config file", note: "1" });
+    await commentOn(page, { quote: "file", note: "2" });
+    await page.keyboard.press("Escape");
+    await page.mouse.move(0, 0);
+
+    await expect.poll(() => badgeOnTopAt(page, 1)).toBe("2");
+
+    await hoverBadge(page, 2);
+
+    await expect.poll(() => badgeOnTopAt(page, 1)).toBe("1");
+    await expect.poll(() => badgeOnTopAt(page, 2)).toBe("2");
+  } finally {
+    await agent.cleanup();
+  }
+});
+
 test("a badge focuses its card and a card reveals its quote, each marking it active", async ({
   page,
 }) => {
@@ -261,6 +353,238 @@ test("a badge focuses its card and a card reveals its quote, each marking it act
   }
 });
 
+test("images pasted over selected output or into a note, or dropped on one, join the composer tray and leave with it", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-images-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "config", note: "see this" });
+    const card = pendingCards(page).first();
+    const tray = composerTray(page);
+
+    await pasteImage(noteInput(card));
+    await expect(cardImages(card)).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(1);
+
+    await removeAttachmentPill(card, "output-comment-image", "Remove image attachment");
+    await expect(cardImages(card)).toHaveCount(0);
+    await expect(trayImages(page)).toHaveCount(0);
+    await expectNotes(page, ["see this"]);
+
+    await dropImage(noteInput(card));
+    await expect(cardImages(card)).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(1);
+
+    await removeAttachmentPill(tray, "composer-image-attachment-pill", "Remove image attachment");
+    await expect(trayImages(page)).toHaveCount(0);
+    await expect(cardImages(card)).toHaveCount(0);
+
+    await pasteOverAssistantText(page, "config", { image: true });
+
+    await expect(noteInput(card)).toBeFocused();
+    await expect(cardImages(card)).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(1);
+    await expectNotes(page, ["see this"]);
+
+    await pasteOverAssistantText(page, "three", { image: true });
+
+    const second = pendingCards(page).nth(1);
+    await expect(noteInput(second)).toBeFocused();
+    await expect(cardImages(second)).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(2);
+    await expectNotes(page, ["see this", ""]);
+
+    await pasteOverAssistantText(page, "three", { text: "and this", image: true });
+
+    await expect(noteInput(second)).toBeFocused();
+    await expect(cardImages(second)).toHaveCount(2);
+    await expect(trayImages(page)).toHaveCount(3);
+    await expectNotes(page, ["see this", "and this"]);
+    await page.keyboard.type(" too");
+    await expectNotes(page, ["see this", "and this too"]);
+
+    await second.getByTestId("output-comment-remove").click();
+
+    await expect(pendingCards(page)).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(1);
+
+    await card.getByTestId("output-comment-remove").click();
+
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expect(trayImages(page)).toHaveCount(0);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("the composer pill opens the first comment and removes the comments it counts, with their images", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-remove-all-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "Retries", note: "x" });
+    await page.keyboard.press("Backspace");
+    // The store persists asynchronously; reloading before it lands would lose the note.
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("@paseo:output-comments")))
+      .toContain('"note":""');
+    await page.reload();
+
+    await expect(pendingCards(page)).toHaveCount(1, { timeout: 30_000 });
+    await expectNotes(page, [""]);
+    await expect(composerPill(page)).toHaveCount(0);
+
+    // A dialog nobody handles is dismissed, so this removal also proves no dialog asked first.
+    await commentOn(page, { quote: "config", note: "alone" });
+    await page.keyboard.press("Escape");
+    await expectComposerPill(page, "1 comment");
+    await removeAllComments(page);
+
+    await expectNotes(page, [""]);
+    await expect(composerPill(page)).toHaveCount(0);
+
+    await commentOn(page, { quote: "config", note: "one" });
+    await pasteImage(focusedNote(page));
+    await commentOn(page, { quote: "three", note: "two" });
+    await pasteImage(focusedNote(page));
+    await page.keyboard.press("Escape");
+    await expect(trayImages(page)).toHaveCount(2);
+    await expectNotes(page, ["one", "", "two"]);
+    await expectComposerPill(page, "2 comments");
+
+    await composerPill(page).click();
+    await expect(noteInput(pendingCards(page).first())).toBeFocused();
+    await page.keyboard.press("Escape");
+
+    expect(await removeAllCommentsAnswering(page, { accept: false })).toBe(
+      "Remove 2 comments?\n\nTheir text and images will be removed from your message.",
+    );
+    await expectNotes(page, ["one", "", "two"]);
+    await expect(trayImages(page)).toHaveCount(2);
+    await expectComposerPill(page, "2 comments");
+
+    await removeAllCommentsAnswering(page, { accept: true });
+
+    await expectNotes(page, [""]);
+    await expect(composerPill(page)).toHaveCount(0);
+    await expect(trayImages(page)).toHaveCount(0);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a note suggests files and skills but not commands", async ({ page }) => {
+  await stubListCommands(page, [
+    { name: "review-diff", description: "Review the diff", argumentHint: "", kind: "skill" },
+    { name: "compact", description: "Compact the context", argumentHint: "", kind: "command" },
+  ]);
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-mention-",
+    repo: { files: [{ path: "docs/parser-notes.md", content: "# Parser notes\n" }] },
+    response: RESPONSE,
+  });
+  try {
+    const note = noteInput(pendingCards(page));
+    const suggestion = mentionPopover(page).getByText("parser-notes.md");
+    await commentOn(page, { quote: "config", note: "see @parser-no" });
+
+    await expect(suggestion).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press("Enter");
+
+    await expectNotes(page, ['see "docs/parser-notes.md"']);
+    await expect(mentionPopover(page)).toHaveCount(0);
+
+    await page.keyboard.type(" or @parser-no");
+    await suggestion.click();
+
+    await expectNotes(page, ['see "docs/parser-notes.md" or "docs/parser-notes.md"']);
+    await expect(note).toBeFocused();
+    await expect(mentionPopover(page)).toHaveCount(0);
+
+    await page.keyboard.type(" /");
+    await expect(
+      mentionPopover(page).getByText("/review-diff", { exact: true }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(mentionPopover(page).getByText("/compact", { exact: true })).toHaveCount(0);
+    await page.keyboard.press("Enter");
+
+    await expectNotes(page, ['see "docs/parser-notes.md" or "docs/parser-notes.md" /review-diff ']);
+    await expect(mentionPopover(page)).toHaveCount(0);
+
+    await page.keyboard.type("@parser-no");
+    await expect(suggestion).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await expect(mentionPopover(page)).toHaveCount(0);
+    await expect(note).toBeFocused();
+
+    await page.keyboard.press("Escape");
+
+    await expect(note).not.toBeFocused();
+    await expectNotes(page, [
+      'see "docs/parser-notes.md" or "docs/parser-notes.md" /review-diff @parser-no',
+    ]);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a comment's card follows the list item its quote ends in, before and after sending", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-list-",
+    response: LIST_RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "the tree", note: "why a tree?" });
+    await commentOn(page, { quote: "Link each", note: "every node?" });
+    await commentOn(page, { quote: "Tokenize", through: "the output", note: "all passes" });
+    await commentOn(page, { quote: "Ship", note: "then ship" });
+
+    const places = [
+      { before: "Link each node", after: "Check each link" },
+      { before: "Build the tree", after: "Emit the output" },
+      { before: "Emit the output", after: null },
+      { before: "Ship the build", after: null },
+    ];
+    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
+    await expectNotes(page, ["every node?", "why a tree?", "all passes", "then ship"]);
+
+    await fillComposerDraft(page, "Please revise.");
+    await composerLocator(page).press("Enter");
+
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
+
+    await agent.client.sendAgentMessage(
+      agent.agentId,
+      withOutputComments("", [
+        {
+          quote: "Ship the build",
+          note: "an item this list lacks",
+          startBlock: 1,
+          occurrence: 0,
+          isCode: false,
+          endItem: [9],
+        },
+      ]),
+    );
+
+    await expect
+      .poll(() => cardPlaces(deliveredCards(page)))
+      .toEqual([...places, { before: "Tokenize the source", after: null }]);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
 test("comments wait out a slash command and go with the next message", async ({
   context,
   page,
@@ -273,6 +597,8 @@ test("comments wait out a slash command and go with the next message", async ({
   try {
     await commentOn(page, { quote: "config", note: "why config?" });
     await commentOn(page, { quote: "three", note: "maybe five" });
+    await pasteImage(noteInput(pendingCards(page).nth(1)));
+    await expect(trayImages(page)).toHaveCount(1);
 
     await fillComposerDraft(page, "/mock handled-command");
     await composerLocator(page).press("Enter");
@@ -281,8 +607,11 @@ test("comments wait out a slash command and go with the next message", async ({
     await expect(command.locator('[data-message-text="true"]')).toHaveText("/mock handled-command");
     await expect(page.getByText("Mock command handled", { exact: true })).toBeVisible();
     await expect(command.getByTestId("user-message-output-comments")).toHaveCount(0);
+    await expect(sentImages(command)).toHaveCount(0);
     await expectNotes(page, ["why config?", "maybe five"]);
     await expectComposerPill(page, "2 comments");
+    await expect(cardImages(pendingCards(page).nth(1))).toHaveCount(1);
+    await expect(trayImages(page)).toHaveCount(1);
     await expect(deliveredCards(page)).toHaveCount(0);
 
     await fillComposerDraft(page, "Please revise.");
@@ -308,7 +637,7 @@ test("comments wait out a slash command and go with the next message", async ({
     await expect(sentCommentCards(userMessage)).toHaveText(
       [
         "The parser reads the config file before anything else.\nwhy config?",
-        "Retries stop after three attempts.\nmaybe five",
+        "Retries stop after three attempts.\nmaybe five\n[Image 1]",
       ],
       { useInnerText: true },
     );
@@ -316,6 +645,7 @@ test("comments wait out a slash command and go with the next message", async ({
       .poll(() => tintedQuotes(sentCommentCards(userMessage).first()))
       .toEqual(["config"]);
     await expect.poll(() => tintedQuotes(sentCommentCards(userMessage).nth(1))).toEqual(["three"]);
+    await expect(sentImages(userMessage)).toHaveCount(1);
 
     await sentCommentsToggle(userMessage).click();
 
@@ -326,7 +656,7 @@ test("comments wait out a slash command and go with the next message", async ({
     await expect(deliveredCards(page)).toHaveText(
       [
         "The parser reads the config file before anything else. why config?",
-        "Retries stop after three attempts. maybe five",
+        "Retries stop after three attempts. maybe five [Image 1]",
       ],
       { useInnerText: true },
     );
@@ -523,13 +853,19 @@ test("queueing carries the comments, and editing the queued message restores the
     await expect(queuedMessageRow(page, "Queued text.").getByText("1 comment")).toBeVisible();
     await expect(composerPill(page)).toHaveCount(0);
     await expect(pendingCards(page)).toHaveCount(0);
+    // Editing the queued message replaces the draft's attachments, but not a pending comment's.
     await commentOn(page, { quote: "three", note: "since queued" });
+    await pasteImage(noteInput(pendingCards(page)));
+    await pasteImage(composerLocator(page));
+    await expect(trayImages(page)).toHaveCount(2);
 
     await page.getByRole("button", { name: "Edit queued message" }).click();
 
     await expectComposerDraft(page, "Queued text.");
     await expectNotes(page, ["queued note", "since queued"]);
     await expectComposerPill(page, "2 comments");
+    await expect(trayImages(page)).toHaveCount(1);
+    await expect(cardImages(pendingCards(page).nth(1))).toHaveCount(1);
 
     await sendDraftToQueue(page);
     await expectQueuedMessageButton(page);

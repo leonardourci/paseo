@@ -1965,6 +1965,11 @@ export const en = {
     composerTitle: "Comments on the output",
     show: "Show comments",
     hide: "Hide comments",
+    attachImageFailed: "Unable to attach image",
+    removeAll: "Remove all comments",
+    removeAllTitle: "Remove {{count}} comments?",
+    removeAllMessage: "Their text and images will be removed from your message.",
+    removeAllConfirm: "Remove",
   },
   settings: {
     title: "Settings",

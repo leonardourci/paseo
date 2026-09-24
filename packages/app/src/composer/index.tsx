@@ -356,6 +356,8 @@ interface RenderAttachmentTrayArgs {
   selectedAttachments: ComposerAttachment[];
   pendingFiles: PendingFileAttachment[];
   outputCommentCount: number;
+  openOutputComments: () => void;
+  removeOutputComments: () => void;
   isComposerLocked: boolean;
   handleOpenAttachment: (attachment: ComposerAttachment) => void;
   handleRemoveAttachment: (index: number) => void;
@@ -373,6 +375,8 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
     selectedAttachments,
     pendingFiles,
     outputCommentCount,
+    openOutputComments,
+    removeOutputComments,
     isComposerLocked,
     handleOpenAttachment,
     handleRemoveAttachment,
@@ -383,7 +387,14 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
   }
   return (
     <View style={styles.attachmentTray} testID="composer-attachment-tray">
-      {outputCommentCount > 0 ? <OutputCommentsComposerPill count={outputCommentCount} /> : null}
+      {outputCommentCount > 0 ? (
+        <OutputCommentsComposerPill
+          count={outputCommentCount}
+          disabled={isComposerLocked}
+          onOpen={openOutputComments}
+          onRemove={removeOutputComments}
+        />
+      ) : null}
       {selectedAttachments.map((attachment, index) =>
         renderComposerAttachmentPill({
           attachment,
@@ -1338,10 +1349,14 @@ function ComposerContentImpl({
     () => textSource.getSnapshot().trim().length > 0,
     () => textSource.getSnapshot().trim().length > 0,
   );
-  const { count: outputCommentCount, prepare: prepareOutputComments } = useComposerOutputComments({
-    serverId,
-    agentId,
-  });
+  const {
+    count: outputCommentCount,
+    prepare: prepareOutputComments,
+    withoutHeldImages: withoutHeldCommentImages,
+    keepCommentImages,
+    openFirst: openOutputComments,
+    removeSendable: removeOutputComments,
+  } = useComposerOutputComments({ serverId, agentId, attachments });
   const hasComposerExternalContent = hasExternalContent || outputCommentCount > 0;
   const setUserInput = onChangeText;
   const workspaceAttachments = useWorkspaceAttachmentsForScopes(attachmentScopeKeys);
@@ -1451,7 +1466,7 @@ function ComposerContentImpl({
       }
       clearDraft("sent");
       replaceUserInput("");
-      setSelectedAttachments([]);
+      setSelectedAttachments(keepCommentImages([]));
       resetSuppression();
       setSendError(null);
       setIsProcessing(true);
@@ -1468,6 +1483,7 @@ function ComposerContentImpl({
     [
       blurOnSubmit,
       clearDraft,
+      keepCommentImages,
       onClientSlashCommand,
       resetSuppression,
       setSelectedAttachments,
@@ -1480,7 +1496,7 @@ function ComposerContentImpl({
       if (blurOnSubmit) messageInputRef.current?.blur();
       clearDraft("sent");
       replaceUserInput("");
-      setSelectedAttachments([]);
+      setSelectedAttachments(keepCommentImages([]));
       resetSuppression();
       setSendError(null);
       executePluginClientSlashCommand({
@@ -1493,7 +1509,14 @@ function ComposerContentImpl({
       });
       return true;
     },
-    [blurOnSubmit, clearDraft, replaceUserInput, resetSuppression, setSelectedAttachments],
+    [
+      blurOnSubmit,
+      clearDraft,
+      keepCommentImages,
+      replaceUserInput,
+      resetSuppression,
+      setSelectedAttachments,
+    ],
   );
 
   const { pickImages } = useImageAttachmentPicker();
@@ -1651,7 +1674,7 @@ function ComposerContentImpl({
 
   const queueMessage = useCallback(
     (queuedMessage: string, queuedAttachments: ComposerAttachment[]) => {
-      const outgoing = prepareOutputComments(queuedMessage);
+      const outgoing = prepareOutputComments(queuedMessage, queuedAttachments);
       const result = queueComposerMessage({
         agentId,
         text: outgoing.text,
@@ -1663,13 +1686,14 @@ function ComposerContentImpl({
       outgoing.markSent();
 
       replaceUserInput("");
-      setSelectedAttachments([]);
+      setSelectedAttachments(keepCommentImages([]));
       resetSuppression();
       clearSentAttachments(queuedAttachments);
     },
     [
       agentId,
       clearSentAttachments,
+      keepCommentImages,
       prepareOutputComments,
       queueWriter,
       resetSuppression,
@@ -1702,14 +1726,20 @@ function ComposerContentImpl({
           if (submitBehavior !== "preserve-and-lock") {
             beginSubmit(submitAttachments);
           }
-          const outgoing = prepareOutputComments(submitText);
+          const outgoing = prepareOutputComments(submitText, submitAttachments);
           await submitMessage(outgoing.text, submitAttachments);
           outgoing.markSent();
         },
-        clearDraft,
+        clearDraft: (lifecycle) => {
+          clearDraft(lifecycle);
+          const kept = keepCommentImages([]);
+          if (kept.length > 0) setSelectedAttachments(kept);
+        },
         setUserInput: replaceUserInput,
         setAttachments: (nextAttachments) => {
-          setSelectedAttachments(composerWorkspaceAttachment.userAttachmentsOnly(nextAttachments));
+          setSelectedAttachments(
+            keepCommentImages(composerWorkspaceAttachment.userAttachmentsOnly(nextAttachments)),
+          );
         },
         setSendError,
         setIsProcessing,
@@ -1730,6 +1760,7 @@ function ComposerContentImpl({
       completeSubmit,
       hasComposerExternalContent,
       isAgentRunning,
+      keepCommentImages,
       prepareOutputComments,
       queueMessage,
       setSelectedAttachments,
@@ -1742,7 +1773,9 @@ function ComposerContentImpl({
 
   const handleSubmit = useCallback(
     (payload: MessagePayload) => {
-      const outgoingAttachments = buildOutgoingAttachments(attachments);
+      const outgoingAttachments = buildOutgoingAttachments(
+        withoutHeldCommentImages(payload.text, attachments),
+      );
       const clientSlashCommand = resolveClientSlashCommand({
         text: payload.text,
         hasAttachments: outgoingAttachments.length > 0,
@@ -1770,6 +1803,7 @@ function ComposerContentImpl({
       pluginClientSlashCommands,
       runPluginClientSlashCommand,
       sendMessageWithContent,
+      withoutHeldCommentImages,
     ],
   );
 
@@ -1974,11 +2008,12 @@ function ComposerContentImpl({
           agentId,
           text: result.text,
           lastOutputId: result.lastOutputId,
+          attachments: result.attachments,
         }),
       );
-      setSelectedAttachments(result.attachments);
+      setSelectedAttachments(keepCommentImages(result.attachments));
     },
-    [agentId, queueWriter, replaceUserInput, serverId, setSelectedAttachments],
+    [agentId, keepCommentImages, queueWriter, replaceUserInput, serverId, setSelectedAttachments],
   );
 
   const handleSendQueuedNow = useCallback(
@@ -2005,7 +2040,9 @@ function ComposerContentImpl({
 
   const handleQueue = useCallback(
     (payload: MessagePayload) => {
-      const outgoingAttachments = buildOutgoingAttachments(attachments);
+      const outgoingAttachments = buildOutgoingAttachments(
+        withoutHeldCommentImages(payload.text, attachments),
+      );
       const clientSlashCommand = resolveClientSlashCommand({
         text: payload.text,
         hasAttachments: outgoingAttachments.length > 0,
@@ -2028,6 +2065,7 @@ function ComposerContentImpl({
       queueMessage,
       runClientSlashCommand,
       runPluginClientSlashCommand,
+      withoutHeldCommentImages,
     ],
   );
 
@@ -2350,6 +2388,8 @@ function ComposerContentImpl({
         selectedAttachments,
         pendingFiles,
         outputCommentCount,
+        openOutputComments,
+        removeOutputComments,
         isComposerLocked,
         handleOpenAttachment,
         handleRemoveAttachment,
@@ -2367,7 +2407,9 @@ function ComposerContentImpl({
       handleOpenAttachment,
       handleRemoveAttachment,
       isComposerLocked,
+      openOutputComments,
       outputCommentCount,
+      removeOutputComments,
       selectedAttachments,
       pendingFiles,
       t,

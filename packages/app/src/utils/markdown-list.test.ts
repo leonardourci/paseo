@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getMarkdownListMarker, getMarkdownListSpacing } from "./markdown-list";
+import {
+  getMarkdownListItemPath,
+  getMarkdownListMarker,
+  getMarkdownListSpacing,
+} from "./markdown-list";
 
 describe("getMarkdownListMarker", () => {
   it("returns a bullet marker for unordered list items", () => {
@@ -83,5 +87,49 @@ describe("getMarkdownListSpacing", () => {
       marginTop: 4,
       marginBottom: 0,
     });
+  });
+});
+
+describe("getMarkdownListItemPath", () => {
+  const nestedFirst = { type: "list_item" };
+  const nestedSecond = { type: "list_item" };
+  const nested = { type: "bullet_list", children: [nestedFirst, nestedSecond] };
+  const first = { type: "list_item" };
+  const second = { type: "list_item", children: [{ type: "paragraph" }, nested] };
+  const list = { type: "bullet_list", children: [first, second] };
+  const nextListItem = { type: "list_item" };
+  const nextList = { type: "ordered_list", children: [nextListItem] };
+  const quotedItem = { type: "list_item" };
+  const quotedList = { type: "bullet_list", children: [quotedItem] };
+  const quote = { type: "blockquote", children: [quotedList] };
+  const body = { type: "body", children: [{ type: "paragraph" }, list, nextList, quote] };
+
+  it.each([
+    {
+      name: "indexes a top-level item among its list's items",
+      item: second,
+      ancestors: [list, body],
+      path: [1],
+    },
+    {
+      name: "indexes a nested item within the item it nests in",
+      item: nestedSecond,
+      ancestors: [nested, second, list, body],
+      path: [1, 1],
+    },
+    {
+      name: "counts on across sibling lists in the same block",
+      item: nextListItem,
+      ancestors: [nextList, body],
+      path: [2],
+    },
+    {
+      name: "gives no path inside a blockquote",
+      item: quotedItem,
+      ancestors: [quotedList, quote, body],
+      path: null,
+    },
+  ])("$name", ({ item, ancestors, path }) => {
+    expect(getMarkdownListItemPath(item, ancestors)).toEqual(path);
   });
 });

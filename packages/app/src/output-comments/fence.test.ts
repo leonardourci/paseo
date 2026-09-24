@@ -124,9 +124,23 @@ describe("parseOutputComments", () => {
       { ...comment, occurrence: 1, messageOrdinal: 3 },
       "```paseo-comment block=2 occ=1 msg=3\n> Move the timeout to 20s\n\nKeep 8s.\n```",
     ],
+    [
+      "the top-level list item the quote ends in",
+      { ...comment, messageOrdinal: 1, endItem: [2], isCode: true },
+      "```paseo-comment block=2 msg=1 item=2 code\n> Move the timeout to 20s\n\nKeep 8s.\n```",
+    ],
+    [
+      "the nested list item the quote ends in",
+      { ...comment, messageOrdinal: 1, endItem: [1, 0, 3], isCode: true },
+      "```paseo-comment block=2 msg=1 item=1.0.3 code\n> Move the timeout to 20s\n\nKeep 8s.\n```",
+    ],
   ])("round-trips %s", (_, sent, text) => {
     expect(withOutputComments("", [sent])).toBe(text);
     expect(parseOutputComments(text).comments).toEqual([{ ...sent, position: 0 }]);
+  });
+
+  it("reads no list item from a fence without one", () => {
+    expect(parseOutputComments(FENCED).comments[0]).not.toHaveProperty("endItem");
   });
 });
 
@@ -137,6 +151,7 @@ describe("parseOutputComments on text without comments", () => {
     ["a fence with no quote", "```paseo-comment block=0\njust text\n```"],
     ["a fence with no note", "```paseo-comment block=0\n> quoted\n```"],
     ["a fence with no block", "```paseo-comment\n> q\n\nn\n```"],
+    ["a fence with a malformed list item", "```paseo-comment block=0 item=1.\n> q\n\nn\n```"],
     [
       "a fence with a number too long to read",
       `\`\`\`paseo-comment block=${"9".repeat(309)}\n> q\n\nn\n\`\`\``,

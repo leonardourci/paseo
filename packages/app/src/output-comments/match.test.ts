@@ -3,6 +3,7 @@ import type { StreamItem } from "@/types/stream";
 import { withOutputComments, type OutputComment, type QuoteAnchor } from "./fence";
 import {
   findMovedCommentSource,
+  listItemPaths,
   quotePlainText,
   quoteSnippet,
   resolveDeliveredOutputComments,
@@ -303,6 +304,18 @@ describe("resolveDeliveredOutputComments", () => {
     ]);
   });
 
+  it("keeps the list item a comment ends in only on the block its fence names", () => {
+    const delivered = resolveDeliveredOutputComments([
+      assistant("a1", "Intro.\n\n- Alpha\n- Beta"),
+      commentTurn("u1", { quote: "Beta", startBlock: 1, endItem: [1] }),
+      commentTurn("u2", { quote: "Beta", startBlock: 0, endItem: [1] }),
+    ]);
+    expect(delivered.get("a1")?.map(({ key, endItem }) => [key, endItem])).toEqual([
+      ["u1:0", [1]],
+      ["u2:0", undefined],
+    ]);
+  });
+
   it.each<{ name: string; items: StreamItem[]; targets: string[] }>([
     {
       name: "prefers the nearest earlier output that contains the quote",
@@ -404,5 +417,25 @@ describe("quotePlainText", () => {
 
   it("keeps code as written", () => {
     expect(quotePlainText({ quote: "**x**\n  y", isCode: true })).toBe("**x** y");
+  });
+});
+
+describe("listItemPaths", () => {
+  it.each([
+    {
+      name: "numbers nested items by their path",
+      block: "- one\n- two\n  - two.one",
+      paths: ["0", "1", "1.0"],
+    },
+    { name: "counts on across sibling lists", block: "- one\n\n1. two", paths: ["0", "1"] },
+    {
+      name: "counts on from a bullet list into an ordered list that follows it directly",
+      block: "- one\n- two\n1. three",
+      paths: ["0", "1", "2"],
+    },
+    { name: "numbers no item inside a blockquote", block: "- one\n\n> - quoted", paths: ["0"] },
+    { name: "finds no items in a block without a list", block: "Just a paragraph.", paths: [] },
+  ])("$name", ({ block, paths }) => {
+    expect([...listItemPaths(block)]).toEqual(paths);
   });
 });

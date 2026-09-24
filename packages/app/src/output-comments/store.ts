@@ -14,6 +14,7 @@ export interface PlacedOutputComment extends QuoteAnchor {
 
 export interface PendingOutputComment extends PlacedOutputComment {
   note: string;
+  imageIds: string[];
 }
 
 interface NewOutputComment extends QuoteAnchor {
@@ -25,8 +26,17 @@ interface CommentRef {
   id: string;
 }
 
+interface CommentIds {
+  draftKey: string;
+  ids: readonly string[];
+}
+
 interface NoteUpdate extends CommentRef {
   note: string;
+}
+
+interface ImageLink extends CommentRef {
+  imageId: string;
 }
 
 export type SentOutputComment = Pick<PendingOutputComment, "id" | "note">;
@@ -57,7 +67,11 @@ interface OutputCommentsStore {
   drafts: PendingDrafts;
   addComment: (target: NewOutputComment, note: string) => string;
   updateNote: (update: NoteUpdate) => void;
-  deleteComment: (ref: CommentRef) => void;
+  /** False when the comment is gone. */
+  linkImage: (link: ImageLink) => boolean;
+  unlinkImage: (link: ImageLink) => void;
+  /** Returns the deleted comments' image ids that no remaining pending comment still uses. */
+  deleteComments: (ref: CommentIds) => string[];
   removeSent: (sent: SentComments) => void;
   restoreComments: (restored: RestoredComments) => void;
   moveSources: (moved: MovedSources) => void;
@@ -106,7 +120,10 @@ const PendingOutputCommentSchema: z.ZodType<PendingOutputComment> = z.strictObje
   quote: z.string(),
   occurrence: z.number().int().nonnegative(),
   isCode: z.boolean(),
+  endItem: z.array(z.number().int().nonnegative()).optional(),
   note: z.string(),
+  // Comments saved before notes held images have none.
+  imageIds: z.array(z.string()).default([]),
 });
 
 const PersistedOutputCommentsSchema: z.ZodType<PersistedOutputComments> = z.strictObject({
@@ -152,6 +169,19 @@ function joinNotes(first: string, second: string): string {
   return first.length > 0 ? `${first}\n${second}` : second;
 }
 
+function withoutImage(comment: PendingOutputComment, imageId: string): PendingOutputComment {
+  return { ...comment, imageIds: comment.imageIds.filter((id) => id !== imageId) };
+}
+
+function unusedImageIds(
+  removed: readonly PendingOutputComment[],
+  remaining: readonly PendingOutputComment[],
+): string[] {
+  const stillUsed = new Set(remaining.flatMap((comment) => comment.imageIds));
+  const removedIds = new Set(removed.flatMap((comment) => comment.imageIds));
+  return [...removedIds].filter((id) => !stillUsed.has(id));
+}
+
 export const useOutputCommentsStore = create<OutputCommentsStore>()(
   persist(
     (set, get) => ({
@@ -167,18 +197,38 @@ export const useOutputCommentsStore = create<OutputCommentsStore>()(
           set({ drafts: withDraft(drafts, draftKey, next) });
           return same.id;
         }
-        const comment: PendingOutputComment = { ...target, id: generateMessageId(), note };
+        const comment: PendingOutputComment = {
+          ...target,
+          id: generateMessageId(),
+          note,
+          imageIds: [],
+        };
         set({ drafts: withDraft(drafts, draftKey, [...pending, comment]) });
         return comment.id;
       },
       updateNote: ({ note, ...ref }) =>
         set((state) => withComment(state, ref, (comment) => ({ ...comment, note }))),
-      deleteComment: ({ draftKey, id }) =>
-        set((state) => {
-          const pending = state.drafts[draftKey] ?? [];
-          const remaining = pending.filter((comment) => comment.id !== id);
-          return { drafts: withDraft(state.drafts, draftKey, remaining) };
-        }),
+      linkImage: ({ imageId, ...ref }) => {
+        const isPending = get().drafts[ref.draftKey]?.some((comment) => comment.id === ref.id);
+        if (!isPending) return false;
+        set((state) =>
+          withComment(state, ref, (comment) =>
+            comment.imageIds.includes(imageId)
+              ? comment
+              : { ...comment, imageIds: [...comment.imageIds, imageId] },
+          ),
+        );
+        return true;
+      },
+      unlinkImage: ({ imageId, ...ref }) =>
+        set((state) => withComment(state, ref, (comment) => withoutImage(comment, imageId))),
+      deleteComments: ({ draftKey, ids }) => {
+        const pending = get().drafts[draftKey] ?? EMPTY_PENDING_COMMENTS;
+        const deleted = pending.filter((comment) => ids.includes(comment.id));
+        const remaining = pending.filter((comment) => !ids.includes(comment.id));
+        set({ drafts: withDraft(get().drafts, draftKey, remaining) });
+        return unusedImageIds(deleted, remaining);
+      },
       removeSent: ({ draftKey, comments }) =>
         set((state) => {
           const sentNotes = new Map(comments.map((comment) => [comment.id, comment.note]));
@@ -199,7 +249,11 @@ export const useOutputCommentsStore = create<OutputCommentsStore>()(
               next.push(restored);
               continue;
             }
-            next[index] = { ...same, note: joinNotes(same.note, restored.note) };
+            next[index] = {
+              ...same,
+              note: joinNotes(same.note, restored.note),
+              imageIds: [...new Set([...same.imageIds, ...restored.imageIds])],
+            };
           }
           return { drafts: withDraft(state.drafts, draftKey, next) };
         }),
@@ -270,6 +324,6 @@ export function loadedComments(
   return pending.filter((comment) => loaded === undefined || loaded.includes(comment.sourceItemId));
 }
 
-export function isSendable(comment: PendingOutputComment): boolean {
-  return comment.note.trim().length > 0;
+export function isSendable(comment: PendingOutputComment, imageIds: readonly string[]): boolean {
+  return comment.note.trim().length > 0 || comment.imageIds.some((id) => imageIds.includes(id));
 }

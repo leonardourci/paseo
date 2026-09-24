@@ -1340,9 +1340,11 @@ function ComposerRestoreProviders({
   onRewindComplete,
   children,
 }: ComposerRestoreProvidersProps) {
-  const { textSource, replaceText } = agentInputDraft;
+  const { textSource, replaceText, attachments, setAttachments } = agentInputDraft;
+  // Rewind restores the message's text only, so its images are gone.
   const restoreRewoundText = useCallback(
-    (text: string) => replaceText(restoreOutputComments({ serverId, agentId, text })),
+    (text: string) =>
+      replaceText(restoreOutputComments({ serverId, agentId, text, attachments: [] })),
     [agentId, replaceText, serverId],
   );
   return (
@@ -1351,7 +1353,12 @@ function ComposerRestoreProviders({
       setText={restoreRewoundText}
       onRewindComplete={onRewindComplete}
     >
-      <OutputCommentsComposerProvider textSource={textSource} setText={replaceText}>
+      <OutputCommentsComposerProvider
+        textSource={textSource}
+        setText={replaceText}
+        attachments={attachments}
+        setAttachments={setAttachments}
+      >
         {children}
       </OutputCommentsComposerProvider>
     </RewindComposerRestoreProvider>

@@ -1973,6 +1973,11 @@ export const ptBR: TranslationResources = {
     composerTitle: "Comentários na resposta",
     show: "Mostrar comentários",
     hide: "Ocultar comentários",
+    attachImageFailed: "Não foi possível anexar a imagem",
+    removeAll: "Remover todos os comentários",
+    removeAllTitle: "Remover {{count}} comentários?",
+    removeAllMessage: "O texto e as imagens deles serão removidos da sua mensagem.",
+    removeAllConfirm: "Remover",
   },
   settings: {
     title: "Configurações",

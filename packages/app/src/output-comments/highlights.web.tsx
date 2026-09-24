@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { AUTOCOMPLETE_POPOVER_SELECTOR } from "@/components/ui/autocomplete-popover";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { hasActiveWebOverlay } from "@/lib/overlay-root";
 import { usePaneFocus } from "@/panels/pane-context";
-import { ICON_SIZE } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { colorWithAlpha } from "@/utils/color";
 import { OutputCommentBadge } from "./badge";
+import {
+  BADGE_SIZE,
+  groupPiles,
+  layOutPile,
+  pileWidth,
+  type BadgePile,
+  type PlacedBadge,
+  type TextBadge,
+} from "./badge-piles";
 import { outputCommentCardId } from "./composer-context";
 import type { QuoteAnchor } from "./fence";
 import type { DeliveredOutputComments } from "./match";
@@ -43,26 +52,26 @@ interface Painting {
   css: string;
 }
 
-interface TextBadge {
-  key: string;
-  number: number;
-  top: number;
-  left: number;
-}
-
 interface TextBadgeButtonProps {
   surfaceId: string;
-  badge: TextBadge;
+  placed: PlacedBadge;
   isActive: boolean;
 }
 
-const BADGE_SIZE = ICON_SIZE.md;
-const EMPTY_BADGES: readonly TextBadge[] = [];
+interface TextBadgePileProps {
+  surfaceId: string;
+  pile: BadgePile;
+  activeKey: string | null;
+}
+
+const BADGE_LIFT = 2;
+const EMPTY_PILES: readonly BadgePile[] = [];
 const TEXT_BADGE_TEST_ID = "output-comment-text-badge";
 const KEEPS_ACTIVE = [
   '[data-testid="output-comment-pending"]',
   '[data-testid="output-comment-delivered"]',
   `[data-testid="${TEXT_BADGE_TEST_ID}"]`,
+  AUTOCOMPLETE_POPOVER_SELECTOR,
 ].join(", ");
 let nextLayerId = 0;
 
@@ -111,45 +120,98 @@ function tintOf(comment: PaintedComment, activeKey: string | null): Tint {
   return comment.number === null ? "delivered" : "pending";
 }
 
-/** A badge at the end of each pending quote, where the quote is in the chat. */
-function placeBadges(layer: HTMLElement, ends: readonly QuoteEnd[]): TextBadge[] {
+function placePiles(layer: HTMLElement, ends: readonly QuoteEnd[]): BadgePile[] {
   const host = layer.getBoundingClientRect();
-  const badges: TextBadge[] = [];
+  const anchors: TextBadge[] = [];
   for (const { comment, range } of ends) {
     if (comment.number === null) continue;
     const rects = range.getClientRects();
     const rect = rects[rects.length - 1];
     if (!rect) continue;
-    const top = rect.top - host.top - BADGE_SIZE / 2;
-    const left = rect.right - host.left;
-    const fitsInHost =
-      top >= 0 && left >= 0 && top + BADGE_SIZE <= host.height && left + BADGE_SIZE <= host.width;
-    if (fitsInHost) badges.push({ key: comment.key, number: comment.number, top, left });
+    anchors.push({
+      key: comment.key,
+      number: comment.number,
+      top: rect.top - host.top - BADGE_SIZE / 2,
+      left: rect.right - host.left,
+    });
   }
-  return badges;
+  return groupPiles(anchors).filter((pile) => {
+    const width = pileWidth({ count: pile.badges.length, isSpread: false });
+    const fitsInHost =
+      pile.top >= 0 &&
+      pile.left >= 0 &&
+      pile.top + BADGE_SIZE <= host.height &&
+      pile.left + width <= host.width;
+    return fitsInHost;
+  });
 }
 
-function TextBadgeButton({ surfaceId, badge, isActive }: TextBadgeButtonProps) {
+/** The lift is on the inner pressable, so the hover target never moves (docs/hover.md, failure mode 2). */
+function TextBadgeButton({ surfaceId, placed, isActive }: TextBadgeButtonProps) {
   const { t } = useTranslation();
+  const { badge } = placed;
   const { key } = badge;
+  const [isHovered, setIsHovered] = useState(false);
   const setActiveKey = useOutputCommentFocusStore((state) => state.setActiveKey);
   const focusNote = useOutputCommentFocusStore((state) => state.focusNote);
+  const handlePointerEnter = useCallback(() => setIsHovered(true), []);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const handlePress = useCallback(() => {
     setActiveKey(key);
     if (revealOutputCommentCard(outputCommentCardId(surfaceId, key))) {
       focusNote({ surfaceId, id: key });
     }
   }, [focusNote, key, setActiveKey, surfaceId]);
+  const isRaised = isHovered || isActive;
+  const lift = isRaised ? -BADGE_LIFT : 0;
   return (
-    <Pressable
-      onPress={handlePress}
-      accessibilityRole="button"
-      accessibilityLabel={t("outputComments.label", { number: badge.number })}
-      style={[styles.textBadge, inlineUnistylesStyle({ top: badge.top, left: badge.left })]}
+    <View
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+      style={[
+        styles.textBadge,
+        inlineUnistylesStyle({ transform: [{ translateX: placed.left }], zIndex: placed.zIndex }),
+      ]}
       testID={TEXT_BADGE_TEST_ID}
     >
-      <OutputCommentBadge number={badge.number} isHighlighted={isActive} />
-    </Pressable>
+      <Pressable
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityLabel={t("outputComments.label", { number: badge.number })}
+        style={[styles.textBadgeLift, inlineUnistylesStyle({ transform: [{ translateY: lift }] })]}
+      >
+        <OutputCommentBadge number={badge.number} isHighlighted={isRaised} />
+      </Pressable>
+    </View>
+  );
+}
+
+function TextBadgePile({ surfaceId, pile, activeKey }: TextBadgePileProps) {
+  const [isSpread, setIsSpread] = useState(false);
+  const handlePointerEnter = useCallback(() => setIsSpread(true), []);
+  const handlePointerLeave = useCallback(() => setIsSpread(false), []);
+  const width = pileWidth({ count: pile.badges.length, isSpread });
+  const placedBadges = layOutPile({ badges: pile.badges, activeKey, isSpread });
+  // A spread pile rises above its neighbours so they can't cover it or steal the hover.
+  const zIndex = isSpread ? 1 : 0;
+  return (
+    <View
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+      style={[
+        styles.pile,
+        inlineUnistylesStyle({ top: pile.top, left: pile.left, zIndex, width, height: BADGE_SIZE }),
+      ]}
+    >
+      {placedBadges.map((placed) => (
+        <TextBadgeButton
+          key={placed.badge.key}
+          surfaceId={surfaceId}
+          placed={placed}
+          isActive={placed.badge.key === activeKey}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -170,7 +232,7 @@ export function OutputCommentHighlights({
   );
   const activeKey = useOutputCommentFocusStore((state) => state.activeKey);
   const setActiveKey = useOutputCommentFocusStore((state) => state.setActiveKey);
-  const [badges, setBadges] = useState(EMPTY_BADGES);
+  const [piles, setPiles] = useState(EMPTY_PILES);
   const [prefix] = useState(() => `paseo-output-comment-${++nextLayerId}`);
 
   useEffect(() => {
@@ -208,7 +270,7 @@ export function OutputCommentHighlights({
     };
     const clear = () => {
       apply(new Map(), "");
-      setBadges(EMPTY_BADGES);
+      setPiles(EMPTY_PILES);
     };
     const canPaint = isPanelActive && comments.length > 0;
     if (!layer || !sheet || !root || !canPaint) {
@@ -231,7 +293,7 @@ export function OutputCommentHighlights({
         apply(painting.highlights, painting.css);
         ends = painting.ends;
       }
-      setBadges(placeBadges(layer, ends));
+      setPiles(placePiles(layer, ends));
     };
     const schedule = () => {
       if (frame === 0) frame = requestAnimationFrame(update);
@@ -261,21 +323,32 @@ export function OutputCommentHighlights({
   return (
     <div ref={layerRef} style={SURFACE_LAYER}>
       <style ref={sheetRef} />
-      {badges.map((badge) => (
-        <TextBadgeButton
-          key={badge.key}
-          surfaceId={surfaceId}
-          badge={badge}
-          isActive={badge.key === activeKey}
-        />
+      {piles.map((pile) => (
+        <TextBadgePile key={pile.key} surfaceId={surfaceId} pile={pile} activeKey={activeKey} />
       ))}
     </div>
   );
 }
 
+const BADGE_TRANSITION = {
+  transitionProperty: "transform",
+  transitionDuration: "120ms",
+  transitionTimingFunction: "ease-out",
+} as const;
+
 const styles = StyleSheet.create((theme) => ({
   active: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.active) },
   pending: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.pending) },
   delivered: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.delivered) },
-  textBadge: { position: "absolute", pointerEvents: "auto" },
+  // No transition on the pile: scrolling and streaming move it, and it must keep up.
+  pile: { position: "absolute", pointerEvents: "auto" },
+  textBadge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    _web: BADGE_TRANSITION,
+  },
+  textBadgeLift: {
+    _web: BADGE_TRANSITION,
+  },
 }));

@@ -27,6 +27,9 @@ import { SPACING } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 
 const OFFSET_FROM_ANCHOR = SPACING[3];
+const TEST_ID = "composer-autocomplete-popover";
+
+export const AUTOCOMPLETE_POPOVER_SELECTOR = `[data-testid="${TEST_ID}"]`;
 
 interface Rect {
   x: number;
@@ -158,10 +161,7 @@ export function AutocompletePopover({
   return (
     <Portal hostName={portalHostName}>
       <View style={styles.overlay} pointerEvents="box-none">
-        <Animated.View
-          testID="composer-autocomplete-popover"
-          style={[baseStyle, keyboardLayoutStyle]}
-        >
+        <Animated.View testID={TEST_ID} style={[baseStyle, keyboardLayoutStyle]}>
           <Autocomplete
             options={options}
             selectedIndex={selectedIndex}

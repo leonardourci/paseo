@@ -1,13 +1,19 @@
 import { findMessageRows, findRenderedMatches } from "@/agent-stream/chat-find/ranges.web";
 import { getAssistantBlockIndex } from "@/agent-stream/presentation";
 import { createAssistantRangeClipboardContent } from "@/assistant-selection-copy/content.web";
-import { MARKDOWN_COPY_TAG_ATTRIBUTE } from "@/assistant-selection-copy/markup";
+import {
+  MARKDOWN_COPY_IGNORE_ATTRIBUTE,
+  MARKDOWN_COPY_TAG_ATTRIBUTE,
+} from "@/assistant-selection-copy/markup";
 import type { QuoteAnchor } from "./fence";
 import { quotePieces } from "./match";
 
 const ROW = "[data-history-row-id]";
 const ASSISTANT_MESSAGE = '[data-testid="assistant-message"]';
 const CODE = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="pre"], [${MARKDOWN_COPY_TAG_ATTRIBUTE}="code"]`;
+const LIST_ITEM = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="li"]`;
+const ITEM_OR_QUOTE = `${LIST_ITEM}, [${MARKDOWN_COPY_TAG_ATTRIBUTE}="blockquote"]`;
+const IGNORED = `[${MARKDOWN_COPY_IGNORE_ATTRIBUTE}]`;
 
 export interface CommentableSelection extends QuoteAnchor {
   rect: DOMRect;
@@ -62,6 +68,40 @@ function selectsTextIn(row: HTMLElement, range: Range): boolean {
   return probe.toString().trim().length > 0;
 }
 
+/** The last text node the range selects any of, so an end at the start of a line isn't in it. */
+function lastSelectedText(row: HTMLElement, range: Range): Text | null {
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!(node instanceof Text) || !range.intersectsNode(node)) continue;
+    if (node.parentElement?.closest(IGNORED)) continue;
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.length;
+    if (node.data.slice(start, end).trim()) last = node;
+  }
+  return last;
+}
+
+function parentItemOrQuote(element: Element): Element | null {
+  return element.parentElement?.closest(ITEM_OR_QUOTE) ?? null;
+}
+
+/** The DOM reading of `getMarkdownListItemPath`, for the item the range ends in. */
+function endItemPath(row: HTMLElement, range: Range): number[] | undefined {
+  let item = lastSelectedText(row, range)?.parentElement?.closest(ITEM_OR_QUOTE) ?? null;
+  const path: number[] = [];
+  while (item) {
+    if (!item.matches(LIST_ITEM)) return undefined;
+    const parent = parentItemOrQuote(item);
+    const level = Array.from((parent ?? row).querySelectorAll(LIST_ITEM)).filter(
+      (candidate) => parentItemOrQuote(candidate) === parent,
+    );
+    path.unshift(level.indexOf(item));
+    item = parent;
+  }
+  return path.length > 0 ? path : undefined;
+}
+
 /**
  * A triple-click ends the range at the start of whatever follows the paragraph (the next row,
  * or a turn footer), so the end is the message's last row holding selected text, and the range
@@ -105,5 +145,6 @@ export function readCommentableSelection(
   // Code keeps its leading indentation.
   const quote = isCode ? content.plainText.trimEnd() : content.plainText.trim();
   const occurrence = occurrenceAt(startRow, { quote, isCode }, range);
-  return { sourceItemId, startBlock, endBlock, quote, occurrence, isCode, rect };
+  const endItem = endItemPath(end.row, end.range);
+  return { sourceItemId, startBlock, endBlock, quote, occurrence, isCode, endItem, rect };
 }

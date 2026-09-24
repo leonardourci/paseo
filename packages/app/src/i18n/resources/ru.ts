@@ -1973,6 +1973,11 @@ export const ru: TranslationResources = {
     composerTitle: "Комментарии к ответу",
     show: "Показать комментарии",
     hide: "Скрыть комментарии",
+    attachImageFailed: "Не удалось прикрепить изображение",
+    removeAll: "Удалить все комментарии",
+    removeAllTitle: "Удалить комментарии ({{count}})?",
+    removeAllMessage: "Их текст и изображения будут удалены из сообщения.",
+    removeAllConfirm: "Удалить",
   },
   settings: {
     title: "Настройки",

@@ -34,7 +34,7 @@ export function getStreamItemMessageId(item: StreamItem): string {
 
 const BLOCK_ROW_ID = /:block:(\d+)$/;
 
-function getAssistantBlockRowId(messageId: string, blockIndex: number): string {
+export function getAssistantBlockRowId(messageId: string, blockIndex: number): string {
   return `${messageId}:block:${blockIndex}`;
 }
 

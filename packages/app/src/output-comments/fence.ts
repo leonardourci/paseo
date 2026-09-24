@@ -8,11 +8,16 @@ export interface QuoteAnchor {
   occurrence: number;
   /** Selected inside code, so the quote is code, not Markdown. */
   isCode: boolean;
+  /**
+   * The list item the quote ends in, as its index path in the end block: [2, 0] is the first
+   * item nested in the third. Absent when it ends outside one.
+   */
+  endItem?: number[];
 }
 
 export interface OutputComment extends Pick<
   QuoteAnchor,
-  "quote" | "startBlock" | "occurrence" | "isCode"
+  "quote" | "startBlock" | "occurrence" | "isCode" | "endItem"
 > {
   note: string;
   /**
@@ -35,7 +40,7 @@ interface ParsedOutputComments {
 const FENCE_INFO = "paseo-comment";
 // Six digits at most, so no number parses to Infinity.
 const FENCE_OPENING = new RegExp(
-  `^(\`{3,})${FENCE_INFO}[ \\t]+block=(\\d{1,6})(?:[ \\t]+occ=(\\d{1,6}))?(?:[ \\t]+msg=([1-9]\\d{0,5}))?(?:[ \\t]+(code))?[ \\t]*$`,
+  `^(\`{3,})${FENCE_INFO}[ \\t]+block=(\\d{1,6})(?:[ \\t]+occ=(\\d{1,6}))?(?:[ \\t]+msg=([1-9]\\d{0,5}))?(?:[ \\t]+item=(\\d{1,6}(?:\\.\\d{1,6})*))?(?:[ \\t]+(code))?[ \\t]*$`,
 );
 
 function quoteLines(markdown: string): string[] {
@@ -54,8 +59,9 @@ function serializeComment(comment: OutputComment): string {
   const fence = fenceFor(body);
   const occurrence = comment.occurrence > 0 ? ` occ=${comment.occurrence}` : "";
   const ordinal = comment.messageOrdinal === undefined ? "" : ` msg=${comment.messageOrdinal}`;
+  const item = comment.endItem === undefined ? "" : ` item=${comment.endItem.join(".")}`;
   const code = comment.isCode ? " code" : "";
-  return `${fence}${FENCE_INFO} block=${comment.startBlock}${occurrence}${ordinal}${code}\n${body}\n${fence}`;
+  return `${fence}${FENCE_INFO} block=${comment.startBlock}${occurrence}${ordinal}${item}${code}\n${body}\n${fence}`;
 }
 
 /**
@@ -100,9 +106,11 @@ function readFence(lines: readonly string[], opening: number): FencedComment | n
   const startBlock = Number(header[2]);
   const occurrence = Number(header[3] ?? "0");
   const ordinal = header[4];
-  const isCode = header[5] !== undefined;
+  const item = header[5];
+  const isCode = header[6] !== undefined;
   const comment: OutputComment = { quote, note, startBlock, occurrence, isCode };
   if (ordinal !== undefined) comment.messageOrdinal = Number(ordinal);
+  if (item !== undefined) comment.endItem = item.split(".").map(Number);
   return { comment, closing };
 }
 

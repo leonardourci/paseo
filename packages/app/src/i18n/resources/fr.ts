@@ -1993,6 +1993,11 @@ export const fr: TranslationResources = {
     composerTitle: "Commentaires sur la réponse",
     show: "Afficher les commentaires",
     hide: "Masquer les commentaires",
+    attachImageFailed: "Impossible de joindre l’image",
+    removeAll: "Supprimer tous les commentaires",
+    removeAllTitle: "Supprimer {{count}} commentaires ?",
+    removeAllMessage: "Leur texte et leurs images seront retirés de votre message.",
+    removeAllConfirm: "Supprimer",
   },
   settings: {
     title: "Paramètres",

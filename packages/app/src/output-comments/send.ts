@@ -1,3 +1,8 @@
+import type {
+  AttachmentMetadata,
+  ComposerAttachment,
+  UserComposerAttachment,
+} from "@/attachments/types";
 import { generateMessageId, type StreamItem } from "@/types/stream";
 import { parseOutputComments, withOutputComments, type OutputComment } from "./fence";
 import { findCommentTarget } from "./match";
@@ -14,6 +19,11 @@ interface PendingText {
   loaded: readonly string[] | undefined;
 }
 
+interface OutgoingText extends PendingText {
+  /** The images sent with the message, in send order. */
+  imageIds: readonly string[];
+}
+
 interface PreparedOutgoingText {
   text: string;
   sent: SentOutputComment[];
@@ -26,9 +36,59 @@ interface QueuedText {
   lastOutputId: string | undefined;
 }
 
+interface RestoredTextInput extends QueuedText {
+  /** The images coming back with the text, in send order. */
+  imageIds: readonly string[];
+}
+
 interface RestoredMessage {
   text: string;
   comments: PendingOutputComment[];
+}
+
+interface CommentImagesInput {
+  attachments: UserComposerAttachment[];
+  draft: readonly UserComposerAttachment[];
+  pending: readonly PendingOutputComment[];
+}
+
+const IMAGE_MARKERS = /(?:^|\n)(\[Image \d+\](?: \[Image \d+\])*)$/;
+
+export function attachedImages(attachments: readonly ComposerAttachment[]): AttachmentMetadata[] {
+  return attachments.flatMap((attachment) =>
+    attachment.kind === "image" ? [attachment.metadata] : [],
+  );
+}
+
+export function imageAttachmentIds(attachments: readonly ComposerAttachment[]): string[] {
+  return attachedImages(attachments).map((image) => image.id);
+}
+
+function noteWithImages(comment: PendingOutputComment, imageIds: readonly string[]): string {
+  const markers = comment.imageIds
+    .map((id) => imageIds.indexOf(id) + 1)
+    .filter((position) => position > 0)
+    .sort((a, b) => a - b)
+    .map((position) => `[Image ${position}]`)
+    .join(" ");
+  return [comment.note.trim(), markers].filter((part) => part.length > 0).join("\n");
+}
+
+/** Reverses `noteWithImages`: the images a marker names that are still at hand get relinked. */
+function splitImageMarkers(
+  note: string,
+  imageIds: readonly string[],
+): Pick<PendingOutputComment, "note" | "imageIds"> {
+  const markers = IMAGE_MARKERS.exec(note);
+  if (!markers) return { note, imageIds: [] };
+  const linked = Array.from(
+    markers[1].matchAll(/\d+/g),
+    ([position]) => imageIds[Number(position) - 1],
+  );
+  return {
+    note: note.slice(0, markers.index),
+    imageIds: linked.filter((id): id is string => id !== undefined),
+  };
 }
 
 /** Counted back from the end of the loaded output, which the message will follow. */
@@ -43,14 +103,15 @@ function ordinalOf(
 
 function toOutputComment(
   comment: PendingOutputComment,
-  loaded: readonly string[] | undefined,
+  { imageIds, loaded }: Pick<OutgoingText, "imageIds" | "loaded">,
 ): OutputComment {
   return {
     quote: comment.quote,
-    note: comment.note,
+    note: noteWithImages(comment, imageIds),
     startBlock: comment.startBlock,
     occurrence: comment.occurrence,
     isCode: comment.isCode,
+    endItem: comment.endItem,
     messageOrdinal: ordinalOf(comment.sourceItemId, loaded),
   };
 }
@@ -67,21 +128,45 @@ function commentsToSend({ text, pending, loaded }: PendingText): PendingOutputCo
 /** The comments the next message would carry. */
 export function sendableComments({
   pending,
+  imageIds,
   loaded,
-}: Omit<PendingText, "text">): PendingOutputComment[] {
-  return loadedComments(pending, loaded).filter(isSendable);
+}: Omit<OutgoingText, "text">): PendingOutputComment[] {
+  return loadedComments(pending, loaded).filter((comment) => isSendable(comment, imageIds));
 }
 
-export function prepareOutgoingText(outgoing: PendingText): PreparedOutgoingText {
+export function prepareOutgoingText(outgoing: OutgoingText): PreparedOutgoingText {
   const sent = commentsToSend(outgoing);
   const comments = sent
-    .filter(isSendable)
-    .map((comment) => toOutputComment(comment, outgoing.loaded));
+    .filter((comment) => isSendable(comment, outgoing.imageIds))
+    .map((comment) => toOutputComment(comment, outgoing));
   return {
     text: withOutputComments(outgoing.text, comments),
     sent: sent.map(({ id, note }) => ({ id, note })),
     lastOutputId: comments.length > 0 ? outgoing.loaded?.at(-1) : undefined,
   };
+}
+
+/** The images only comments staying pending use; a comment sent with the text takes its own. */
+export function heldImageIds(input: PendingText): string[] {
+  const sentImageIds = new Set(commentsToSend(input).flatMap(({ imageIds }) => imageIds));
+  return input.pending.flatMap(({ imageIds }) => imageIds).filter((id) => !sentImageIds.has(id));
+}
+
+/** `attachments`, plus the draft's images that a pending comment still uses. */
+export function withCommentImages({
+  attachments,
+  draft,
+  pending,
+}: CommentImagesInput): UserComposerAttachment[] {
+  const used = new Set(pending.flatMap(({ imageIds }) => imageIds));
+  const present = new Set(imageAttachmentIds(attachments));
+  const missing = draft.filter(
+    (attachment) =>
+      attachment.kind === "image" &&
+      used.has(attachment.metadata.id) &&
+      !present.has(attachment.metadata.id),
+  );
+  return missing.length > 0 ? [...attachments, ...missing] : attachments;
 }
 
 /**
@@ -123,7 +208,12 @@ export function placeQueuedText({ items, text, lastOutputId }: QueuedText): stri
  * it was written against, or at the latest output holding its quote once the output a queued
  * message followed is gone. A comment no output holds stays in the text.
  */
-export function restoreOutgoingText({ items, text, lastOutputId }: QueuedText): RestoredMessage {
+export function restoreOutgoingText({
+  items,
+  text,
+  lastOutputId,
+  imageIds,
+}: RestoredTextInput): RestoredMessage {
   const end = queuedOutputEnd(items, lastOutputId);
   const parsed = parseOutputComments(text);
   const comments: PendingOutputComment[] = [];
@@ -143,7 +233,8 @@ export function restoreOutgoingText({ items, text, lastOutputId }: QueuedText): 
       quote: comment.quote,
       occurrence: comment.occurrence,
       isCode: comment.isCode,
-      note: comment.note,
+      endItem: target.endItem,
+      ...splitImageMarkers(comment.note, imageIds),
     });
   }
   return { text: withOutputComments(parsed.rest, unresolved), comments };

@@ -1919,6 +1919,11 @@ export const zhCN: TranslationResources = {
     composerTitle: "对回复的评论",
     show: "显示评论",
     hide: "隐藏评论",
+    attachImageFailed: "无法附加图片",
+    removeAll: "移除所有评论",
+    removeAllTitle: "移除 {{count}} 条评论？",
+    removeAllMessage: "这些评论的文字和图片将从你的消息中移除。",
+    removeAllConfirm: "移除",
   },
   settings: {
     title: "设置",

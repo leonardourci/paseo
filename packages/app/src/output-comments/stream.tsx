@@ -14,6 +14,10 @@ import invariant from "tiny-invariant";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { markdownCopyDataSet } from "@/assistant-selection-copy/markup";
+import {
+  ListItemSlotContext,
+  type RenderAfterListItem,
+} from "@/components/markdown/list-item-slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
 import type { AssistantMessageItem, StreamItem } from "@/types/stream";
@@ -24,6 +28,7 @@ import { useDeliveredTurns } from "./delivered";
 import { OutputCommentHighlights } from "./highlights";
 import {
   findMovedCommentSource,
+  listItemPaths,
   type DeliveredOutputComment,
   type DeliveredOutputComments,
 } from "./match";
@@ -60,8 +65,20 @@ interface NumberedPendingComment {
 }
 
 interface CardGroup {
+  pending: NumberedPendingComment[];
+  delivered: DeliveredOutputComment[];
+}
+
+interface BlockCards {
+  afterBlock: CardGroup;
+  /** Keyed by the item's path, dot-joined as in the fence. */
+  afterItems: Map<string, CardGroup>;
+}
+
+interface BlockCardsInput {
   pending: readonly NumberedPendingComment[];
   delivered: readonly DeliveredOutputComment[];
+  blockText: string;
 }
 
 interface OutputCommentCardsProps {
@@ -71,6 +88,8 @@ interface OutputCommentCardsProps {
 
 interface StreamComments {
   draftKey: string;
+  serverId: string;
+  agentId: string;
   /** Tells this pane's cards from another pane's showing the same agent. */
   surfaceId: string;
   pendingByRow: ReadonlyMap<string, readonly NumberedPendingComment[]>;
@@ -93,6 +112,33 @@ function useStreamComments(): StreamComments {
 
 function rowKey(sourceItemId: string, block: number): string {
   return `${sourceItemId}:${block}`;
+}
+
+function itemKey(path: readonly number[]): string {
+  return path.join(".");
+}
+
+function emptyGroup(): CardGroup {
+  return { pending: [], delivered: [] };
+}
+
+/** A card goes after the list item its quote ends in, else after the block. */
+function placeCards({ pending, delivered, blockText }: BlockCardsInput): BlockCards {
+  const cards: BlockCards = { afterBlock: emptyGroup(), afterItems: new Map() };
+  let itemPaths: ReadonlySet<string> | null = null;
+  function groupFor(endItem: readonly number[] | undefined): CardGroup {
+    if (endItem === undefined) return cards.afterBlock;
+    const key = itemKey(endItem);
+    itemPaths ??= listItemPaths(blockText);
+    // A card after an item the block doesn't have would never render.
+    if (!itemPaths.has(key)) return cards.afterBlock;
+    const group = cards.afterItems.get(key) ?? emptyGroup();
+    cards.afterItems.set(key, group);
+    return group;
+  }
+  for (const entry of pending) groupFor(entry.comment.endItem).pending.push(entry);
+  for (const comment of delivered) groupFor(comment.endItem).delivered.push(comment);
+  return cards;
 }
 
 function isSameComments(
@@ -185,13 +231,15 @@ export function OutputCommentsLayer({
   const comments = useMemo(
     (): StreamComments => ({
       draftKey,
+      serverId,
+      agentId,
       surfaceId,
       pendingByRow,
       delivered,
       commentTurns,
       viewportRef,
     }),
-    [commentTurns, delivered, draftKey, pendingByRow, surfaceId, viewportRef],
+    [agentId, commentTurns, delivered, draftKey, pendingByRow, serverId, surfaceId, viewportRef],
   );
   return (
     <StreamCommentsContext.Provider value={comments}>
@@ -224,7 +272,7 @@ export function useSentCommentBlockText(key: string): string | null {
   }, [commentTurns, delivered, key]);
 }
 
-/** Puts the cards of the comments whose quotes end in this block after its output. */
+/** Wraps the block's output so its cards can follow list items, and puts the rest after it. */
 export function OutputCommentsBlock({
   sourceItemId,
   blockIndex,
@@ -234,27 +282,34 @@ export function OutputCommentsBlock({
   const { pendingByRow, delivered } = useStreamComments();
   const rowPending = pendingByRow.get(rowKey(sourceItemId, blockIndex)) ?? EMPTY_ROW_PENDING;
   const sourceDelivered = delivered.get(sourceItemId) ?? EMPTY_ROW_DELIVERED;
-  const cards = useMemo(
-    (): CardGroup => ({
-      pending: rowPending,
-      delivered: sourceDelivered.filter((comment) => comment.endBlock === blockIndex),
-    }),
-    [blockIndex, rowPending, sourceDelivered],
-  );
+  const cards = useMemo(() => {
+    const deliveredHere = sourceDelivered.filter((comment) => comment.endBlock === blockIndex);
+    return placeCards({ pending: rowPending, delivered: deliveredHere, blockText });
+  }, [blockIndex, blockText, rowPending, sourceDelivered]);
+  // Null unless a card follows an item, so every other block keeps its Markdown rules.
+  const renderAfterListItem = useMemo((): RenderAfterListItem | null => {
+    if (cards.afterItems.size === 0) return null;
+    return (path) => {
+      const group = cards.afterItems.get(itemKey(path));
+      return group ? <OutputCommentCards cards={group} blockText={blockText} /> : null;
+    };
+  }, [blockText, cards]);
   return (
     <>
-      {children}
-      <OutputCommentCards cards={cards} blockText={blockText} />
+      <ListItemSlotContext.Provider value={renderAfterListItem}>
+        {children}
+      </ListItemSlotContext.Provider>
+      <OutputCommentCards cards={cards.afterBlock} blockText={blockText} />
     </>
   );
 }
 
 function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
-  const { draftKey, surfaceId } = useStreamComments();
+  const { draftKey, serverId, agentId, surfaceId } = useStreamComments();
   const composer = useOutputCommentsComposer();
   const hasPending = composer !== null && cards.pending.length > 0;
   if (!hasPending && cards.delivered.length === 0) return null;
-  // Not part of the output, so copy and find skip them.
+  // Marked as no part of the output, since cards can sit inside it: copy and find skip them.
   return (
     <View
       style={styles.container}
@@ -274,10 +329,12 @@ function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
             <PendingOutputCommentCard
               key={comment.id}
               draftKey={draftKey}
-              surfaceId={surfaceId}
+              serverId={serverId}
+              agentId={agentId}
               comment={comment}
               number={number}
               blockText={blockText}
+              composer={composer}
             />
           ))
         : null}

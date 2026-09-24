@@ -26,7 +26,7 @@ interface NormalizedMessage {
   blockStarts: number[];
 }
 
-type CommentTarget = Pick<QuoteAnchor, "sourceItemId" | "startBlock" | "endBlock">;
+type CommentTarget = Pick<QuoteAnchor, "sourceItemId" | "startBlock" | "endBlock" | "endItem">;
 
 type QuoteText = Pick<QuoteAnchor, "quote" | "isCode">;
 
@@ -185,9 +185,12 @@ function commentsOf(item: UserMessageItem): ParsedOutputComment[] {
   return comments;
 }
 
+/** The list item only still means something in the block the fence names. */
 function locateComment(item: AssistantMessageItem, comment: OutputComment): CommentTarget | null {
   const location = locateInMessage(normalizeMessage(item), comment);
-  return location ? { ...location, sourceItemId: item.id } : null;
+  if (!location) return null;
+  const endItem = location.startBlock === comment.startBlock ? comment.endItem : undefined;
+  return { ...location, sourceItemId: item.id, endItem };
 }
 
 /** The assistant message `ordinal` back from `end`: 1 is the last one before it. */
@@ -255,6 +258,38 @@ export function findMovedCommentSource(
       item.kind === "assistant_message" && holdsQuoteAt(item, anchor),
   );
   return matches.length === 1 && matches[0] ? matches[0].id : null;
+}
+
+/**
+ * The dot-joined paths of the list items in a block's Markdown, numbered as
+ * `getMarkdownListItemPath` numbers them for the renderer: counting on across sibling lists, and
+ * none inside a blockquote.
+ */
+export function listItemPaths(blockText: string): Set<string> {
+  const paths = new Set<string>();
+  // Items seen so far per open container: the block, then each open item or blockquote.
+  const counts = [0];
+  const path: number[] = [];
+  let quoteDepth = 0;
+  for (const { type } of parser.parse(blockText, {})) {
+    if (type === "list_item_open") {
+      const container = counts.length - 1;
+      path.push(counts[container]);
+      counts[container] += 1;
+      counts.push(0);
+      if (quoteDepth === 0) paths.add(path.join("."));
+    } else if (type === "list_item_close") {
+      path.pop();
+      counts.pop();
+    } else if (type === "blockquote_open") {
+      quoteDepth += 1;
+      counts.push(0);
+    } else if (type === "blockquote_close") {
+      quoteDepth -= 1;
+      counts.pop();
+    }
+  }
+  return paths;
 }
 
 export function deliveredCommentKey(turnItemId: string, position: number): string {

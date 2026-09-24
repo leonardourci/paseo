@@ -62,11 +62,16 @@ import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import { resolveToolCallIcon } from "@/utils/tool-call-icon";
-import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-list";
+import {
+  getMarkdownListItemPath,
+  getMarkdownListMarker,
+  getMarkdownListSpacing,
+} from "@/utils/markdown-list";
 import { markdownNodeContainsType } from "@/utils/markdown-ast";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { MarkdownFenceBlock } from "@/components/markdown/fence";
+import { ListItemSlotContext } from "@/components/markdown/list-item-slot";
 import type { MarkdownPhase } from "@/components/markdown/fence/types";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { useRevealedText } from "@/hooks/use-revealed-text";
@@ -1565,6 +1570,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     return false;
   });
 
+  const renderAfterListItem = useContext(ListItemSlotContext);
   const markdownRules = useMemo<RenderRules>(() => {
     return {
       heading1: (
@@ -1909,15 +1915,21 @@ export const AssistantMessage = memo(function AssistantMessage({
         const iconStyle = isOrdered ? styles.ordered_list_icon : styles.bullet_list_icon;
         const contentStyle = isOrdered ? styles.ordered_list_content : styles.bullet_list_content;
 
+        const path = renderAfterListItem ? getMarkdownListItemPath(node, parent) : null;
+        // One element type whether or not a card follows, so a card coming or going doesn't
+        // remount the list.
         return (
-          <View key={node.key} style={styles.list_item} dataSet={markdownCopyDataSet.li}>
-            <Text style={iconStyle} dataSet={markdownCopyDataSet.listMarker}>
-              {marker}
-            </Text>
-            <MarkdownListItemContent contentStyle={contentStyle}>
-              {children}
-            </MarkdownListItemContent>
-          </View>
+          <React.Fragment key={node.key}>
+            <View style={styles.list_item} dataSet={markdownCopyDataSet.li}>
+              <Text style={iconStyle} dataSet={markdownCopyDataSet.listMarker}>
+                {marker}
+              </Text>
+              <MarkdownListItemContent contentStyle={contentStyle}>
+                {children}
+              </MarkdownListItemContent>
+            </View>
+            {renderAfterListItem && path ? renderAfterListItem(path) : null}
+          </React.Fragment>
         );
       },
       th: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
@@ -1992,7 +2004,16 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, fileLinkActions, markdownParser, occurrenceKey, phase, serverId, workspaceRoot]);
+  }, [
+    client,
+    fileLinkActions,
+    markdownParser,
+    occurrenceKey,
+    phase,
+    renderAfterListItem,
+    serverId,
+    workspaceRoot,
+  ]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(revealedMessage), [revealedMessage]);
   const keyedBlocks = useMemo(

@@ -1950,6 +1950,11 @@ export const ko: TranslationResources = {
     composerTitle: "답변에 대한 댓글",
     show: "댓글 표시",
     hide: "댓글 숨기기",
+    attachImageFailed: "이미지를 첨부할 수 없습니다",
+    removeAll: "모든 댓글 제거",
+    removeAllTitle: "댓글 {{count}}개를 제거할까요?",
+    removeAllMessage: "댓글의 내용과 이미지도 메시지에서 제거됩니다.",
+    removeAllConfirm: "제거",
   },
   settings: {
     title: "설정",

@@ -354,7 +354,7 @@ describe("AgentStoreProjection.removeFromDirectory", () => {
     new AgentStoreProjection("server-1").removeFromDirectory("removed");
 
     expect(useOutputCommentsStore.getState().drafts).toEqual({
-      [draftKey("kept")]: [{ ...anchor, id: kept, note: "stays" }],
+      [draftKey("kept")]: [{ ...anchor, id: kept, note: "stays", imageIds: [] }],
     });
   });
 });

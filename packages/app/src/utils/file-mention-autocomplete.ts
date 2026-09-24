@@ -50,3 +50,17 @@ export function applyFileMentionReplacement(input: ApplyFileMentionReplacementIn
   const after = input.text.slice(input.mention.end);
   return `${before}${formatQuotedFileMentionPath(input.relativePath)}${after}`;
 }
+
+interface CaretAfterFileMentionReplacementInput {
+  previousText: string;
+  cursorIndex: number;
+  nextText: string;
+}
+
+/** Right after the inserted path: the replacement keeps everything after the cursor. */
+export function caretAfterFileMentionReplacement(
+  input: CaretAfterFileMentionReplacementInput,
+): number {
+  const clampedCursor = Math.max(0, Math.min(input.cursorIndex, input.previousText.length));
+  return input.nextText.length - (input.previousText.length - clampedCursor);
+}

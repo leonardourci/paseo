@@ -1940,6 +1940,11 @@ export const ar: TranslationResources = {
     composerTitle: "تعليقات على الرد",
     show: "إظهار التعليقات",
     hide: "إخفاء التعليقات",
+    attachImageFailed: "تعذر إرفاق الصورة",
+    removeAll: "إزالة كل التعليقات",
+    removeAllTitle: "إزالة التعليقات ({{count}})؟",
+    removeAllMessage: "ستُزال نصوصها وصورها من رسالتك.",
+    removeAllConfirm: "إزالة",
   },
   settings: {
     title: "إعدادات",

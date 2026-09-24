@@ -3,13 +3,18 @@ import { useTranslation } from "react-i18next";
 import { View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { MessageSquarePlus, Quote } from "lucide-react-native";
+import { getAssistantBlockRowId } from "@/agent-stream/presentation";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { hasActiveWebOverlay } from "@/lib/overlay-root";
 import { usePaneFocus } from "@/panels/pane-context";
 import { SPACING } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { collectImageFilesFromClipboardData } from "@/utils/image-attachments-from-files";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
+import type { QuoteAnchor } from "./fence";
+import { attachNoteImage } from "./note-images.web";
+import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
 import { readCommentableSelection, type CommentableSelection } from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 import { SURFACE_LAYER, surfaceRootOf } from "./surface.web";
@@ -136,11 +141,12 @@ export function OutputCommentSelectionLayer({
   }, [clear, readSelection]);
 
   const startComment = useCallback(
-    ({ rect: _rect, ...anchor }: CommentableSelection, note: string) => {
+    ({ rect: _rect, ...anchor }: CommentableSelection, note: string): string => {
       const id = addComment({ ...anchor, draftKey }, note);
       focusNote({ surfaceId, id });
       window.getSelection()?.removeAllRanges();
       clear();
+      return id;
     },
     [addComment, clear, draftKey, focusNote, surfaceId],
   );
@@ -158,12 +164,33 @@ export function OutputCommentSelectionLayer({
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) clear();
     };
+    const focusingNote = {
+      draftKey,
+      surfaceId,
+      isCardRowRendered: ({ sourceItemId, endBlock }: QuoteAnchor) => {
+        const rowId = CSS.escape(getAssistantBlockRowId(sourceItemId, endBlock));
+        return Boolean(surfaceRoot()?.querySelector(`[data-history-row-id="${rowId}"]`));
+      },
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isOutputKey(event) || !isTypeToCommentKey(event.key)) return;
-      const selection = readSelection();
-      if (!selection) return;
-      startComment(selection, event.key);
+      if (!isOutputKey(event)) return;
+      const selection = isTypeToCommentKey(event.key) ? readSelection() : null;
+      if (selection) startComment(selection, event.key);
+      else if (!typeIntoFocusingNote(focusingNote, event.key)) return;
       event.preventDefault();
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      if (!isOutputEvent(event)) return;
+      const text = event.clipboardData?.getData("text/plain").replace(/\r\n/g, "\n") ?? "";
+      const images = collectImageFilesFromClipboardData(event.clipboardData);
+      if (text === "" && images.length === 0) return;
+      const selection = readSelection();
+      const commentId = selection
+        ? startComment(selection, text)
+        : pasteIntoFocusingNote(focusingNote, text);
+      if (commentId === null) return;
+      event.preventDefault();
+      for (const image of images) void attachNoteImage({ draftKey, commentId, image, composer });
     };
     // The agent's own auto-scroll while streaming fires these, so follow the selection, once a frame.
     let frame = 0;
@@ -181,6 +208,7 @@ export function OutputCommentSelectionLayer({
     window.addEventListener("resize", onReposition);
     // React Native TextInput stops bubbling key events, so listen in the capture phase.
     document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("paste", onPaste);
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("pointerup", onPointerUp);
@@ -189,8 +217,19 @@ export function OutputCommentSelectionLayer({
       document.removeEventListener("scroll", onReposition, true);
       window.removeEventListener("resize", onReposition);
       document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("paste", onPaste);
     };
-  }, [clear, isEnabled, readSelection, showForSelection, startComment]);
+  }, [
+    clear,
+    composer,
+    draftKey,
+    isEnabled,
+    readSelection,
+    showForSelection,
+    startComment,
+    surfaceId,
+    surfaceRoot,
+  ]);
 
   // The toolbar may still stand for an earlier selection, say after a keyboard select-all, so
   // each button reads the selection as it is now.

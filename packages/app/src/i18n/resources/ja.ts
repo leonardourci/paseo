@@ -1960,6 +1960,11 @@ export const ja: TranslationResources = {
     composerTitle: "返答へのコメント",
     show: "コメントを表示",
     hide: "コメントを非表示",
+    attachImageFailed: "画像を添付できません",
+    removeAll: "すべてのコメントを削除",
+    removeAllTitle: "{{count}} 件のコメントを削除しますか？",
+    removeAllMessage: "コメントの本文と画像もメッセージから削除されます。",
+    removeAllConfirm: "削除",
   },
   settings: {
     title: "設定",

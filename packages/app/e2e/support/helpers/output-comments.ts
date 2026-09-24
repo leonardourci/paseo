@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { HIGHLIGHT_ALPHA, type Tint } from "@/output-comments/tint";
+import { dropFileOn, removeAttachmentPill } from "./composer";
 import {
   openAgentRoute,
   seedMockAgentWorkspace,
@@ -33,6 +34,8 @@ interface AssistantTextTarget {
   text: string;
   /** Which case-sensitive occurrence of `text` in the reply. */
   occurrence?: number;
+  /** Where the selection ends: the end of the first occurrence of this from `text` on. */
+  through?: string;
 }
 
 interface QuoteInView {
@@ -46,13 +49,36 @@ interface ToggleEdges {
   top: number;
 }
 
+/** A key's name, or text to paste. */
+type InstantInput = string | { paste: string };
+
 interface CommentOnInput {
   quote: string;
   note: string;
   occurrence?: number;
+  through?: string;
+}
+
+interface CardPlace {
+  /** The first text of what renders just before the card's group, null for nothing. */
+  before: string | null;
+  after: string | null;
+}
+
+interface ClipboardContent {
+  text?: string;
+  imageBase64?: string;
+}
+
+interface DocumentPaste {
+  text?: string;
+  image?: boolean;
 }
 
 const TINTS: readonly Tint[] = ["active", "pending", "delivered"];
+
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 async function boxOf(locator: Locator): Promise<Box> {
   const box = await locator.boundingBox();
@@ -62,10 +88,11 @@ async function boxOf(locator: Locator): Promise<Box> {
 
 export async function openAnsweredAgent(
   page: Page,
-  options: Pick<MockAgentOptions, "repoPrefix"> & { response: string },
+  options: Pick<MockAgentOptions, "repoPrefix" | "repo"> & { response: string },
 ): Promise<MockAgentWorkspace> {
   const agent = await seedMockAgentWorkspace({
     repoPrefix: options.repoPrefix,
+    repo: options.repo,
     title: "Output comments",
     initialPrompt: "Explain the parser.",
     featureValues: { mockAssistantResponse: options.response },
@@ -81,7 +108,7 @@ export async function openAnsweredAgent(
   }
 }
 
-/** The reply's text, one element per Markdown block. */
+/** The reply's text, one element per Markdown block. Cards on a list item render inside it. */
 export function assistantMessageText(page: Page): Locator {
   return page.getByTestId("assistant-message");
 }
@@ -117,10 +144,52 @@ export function composerPill(page: Page): Locator {
   return page.getByTestId("composer-output-comments-pill");
 }
 
+export function composerTray(page: Page): Locator {
+  return page.getByTestId("composer-attachment-tray");
+}
+
+export async function removeAllComments(page: Page): Promise<void> {
+  await removeAttachmentPill(
+    composerTray(page),
+    "composer-output-comments-pill",
+    "Remove all comments",
+  );
+}
+
+/** Removes all comments through the dialog that asks first, and returns what it asked. */
+export async function removeAllCommentsAnswering(
+  page: Page,
+  { accept }: { accept: boolean },
+): Promise<string> {
+  const dialogShown = page.waitForEvent("dialog", { timeout: 10_000 });
+  const removal = removeAllComments(page);
+  const dialog = await dialogShown;
+  const message = dialog.message();
+  await (accept ? dialog.accept() : dialog.dismiss());
+  await removal;
+  return message;
+}
+
 export async function expectComposerPill(page: Page, label: string): Promise<void> {
   await expect(composerPill(page)).toHaveText(`Comments on the output ${label}`, {
     useInnerText: true,
   });
+}
+
+export function mentionPopover(page: Page): Locator {
+  return page.getByTestId("composer-autocomplete-popover");
+}
+
+export function cardImages(card: Locator): Locator {
+  return card.getByTestId("output-comment-image");
+}
+
+export function trayImages(page: Page): Locator {
+  return page.getByTestId("composer-image-attachment-pill");
+}
+
+export function sentImages(userMessage: Locator): Locator {
+  return userMessage.getByLabel("Open image attachment");
 }
 
 export function sentUserMessage(page: Page, text: string): Locator {
@@ -139,12 +208,12 @@ export async function leaveFocusedField(page: Page): Promise<void> {
 }
 
 /**
- * Selects an occurrence of `text` in the reply, counted case-sensitively, and returns the
- * selection's centre.
+ * Selects an occurrence of `text` in the reply, counted case-sensitively, through the end of the first
+ * `through` from there, and returns the selection's centre.
  */
 export async function selectAssistantText(
   page: Page,
-  { text, occurrence = 0 }: AssistantTextTarget,
+  { text, occurrence = 0, through = text }: AssistantTextTarget,
 ): Promise<Point> {
   return assistantMessageText(page).evaluateAll(
     (blocks, target) => {
@@ -152,7 +221,8 @@ export async function selectAssistantText(
       for (const block of blocks) {
         const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          if (node instanceof Text) texts.push(node);
+          const isCard = node.parentElement?.closest('[data-testid="output-comment-rows"]');
+          if (node instanceof Text && !isCard) texts.push(node);
         }
       }
       function find(needle: string, fromText: number, fromOffset: number) {
@@ -166,18 +236,19 @@ export async function selectAssistantText(
       for (let seen = 0; start && seen < target.occurrence; seen += 1) {
         start = find(target.text, start.index, start.at + 1);
       }
-      if (!start) {
+      const end = start && find(target.through, start.index, start.at);
+      if (!start || !end) {
         throw new Error(`Could not find occurrence ${target.occurrence} of "${target.text}"`);
       }
       const range = document.createRange();
       range.setStart(texts[start.index], start.at);
-      range.setEnd(texts[start.index], start.at + target.text.length);
+      range.setEnd(texts[end.index], end.at + target.through.length);
       window.getSelection()?.removeAllRanges();
       window.getSelection()?.addRange(range);
       const rect = range.getBoundingClientRect();
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     },
-    { text, occurrence },
+    { text, occurrence, through },
   );
 }
 
@@ -186,20 +257,70 @@ export async function doubleClickAssistantText(page: Page, text: string): Promis
   await page.mouse.dblclick(centre.x, centre.y);
 }
 
-function focusedNote(page: Page): Locator {
+export async function typeOverAssistantText(page: Page, text: string, keys: string): Promise<void> {
+  await leaveFocusedField(page);
+  await selectAssistantText(page, { text });
+  await page.keyboard.type(keys);
+}
+
+/**
+ * Dispatches every input in one task, before the app can render, as input arriving faster than a
+ * new note takes focus does. Untrusted, so a key types nothing by itself.
+ */
+export async function dispatchInputAtOnce(page: Page, inputs: InstantInput[]): Promise<void> {
+  await page.evaluate((events) => {
+    for (const input of events) {
+      const target = document.activeElement ?? document;
+      if (typeof input === "string") {
+        const init = { key: input, bubbles: true, cancelable: true };
+        target.dispatchEvent(new KeyboardEvent("keydown", init));
+      } else {
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/plain", input.paste);
+        const init = { clipboardData, bubbles: true, cancelable: true };
+        target.dispatchEvent(new ClipboardEvent("paste", init));
+      }
+    }
+  }, inputs);
+}
+
+export function focusedNote(page: Page): Locator {
   return page.locator('[data-testid="output-comment-input"]:focus');
 }
 
 /** Types over the quote; the rest of the note follows once its first key has focused the note. */
 export async function commentOn(
   page: Page,
-  { quote, note, occurrence = 0 }: CommentOnInput,
+  { quote, note, occurrence = 0, through = quote }: CommentOnInput,
 ): Promise<void> {
   await leaveFocusedField(page);
-  await selectAssistantText(page, { text: quote, occurrence });
+  await selectAssistantText(page, { text: quote, occurrence, through });
   await page.keyboard.type(note.slice(0, 1));
   await expect(focusedNote(page)).toHaveCount(1);
   await page.keyboard.type(note.slice(1));
+}
+
+/** Where each card renders, in page order, by the text around its group of cards. */
+export async function cardPlaces(cards: Locator): Promise<CardPlace[]> {
+  return cards.evaluateAll((elements) => {
+    function firstText(element: Element | null | undefined): string | null {
+      if (!element) return null;
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const isMarker = node.parentElement?.closest('[data-paseo-markdown-ignore="true"]');
+        const text = node.textContent?.trim();
+        if (!isMarker && text) return text;
+      }
+      return null;
+    }
+    return elements.map((card) => {
+      const group = card.closest('[data-testid="output-comment-rows"]');
+      return {
+        before: firstText(group?.previousElementSibling),
+        after: firstText(group?.nextElementSibling),
+      };
+    });
+  });
 }
 
 /** An alpha no tint paints stays a number, so a failure shows what was painted. */
@@ -305,6 +426,73 @@ export async function expectActiveCards(page: Page, expected: boolean[]): Promis
       ),
     )
     .toEqual(expected);
+}
+
+async function badgeCentre(page: Page, number: number): Promise<Point> {
+  const box = await boxOf(textBadge(page, number));
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** The number on the badge a pointer at the centre of badge `number` lands on. */
+export async function badgeOnTopAt(page: Page, number: number): Promise<string | null> {
+  const { x, y } = await badgeCentre(page, number);
+  return page.evaluate(
+    ([pointX, pointY]) =>
+      document
+        .elementFromPoint(pointX, pointY)
+        ?.closest('[data-testid="output-comment-text-badge"]')?.textContent ?? null,
+    [x, y],
+  );
+}
+
+export async function hoverBadge(page: Page, number: number): Promise<void> {
+  const { x, y } = await badgeCentre(page, number);
+  await page.mouse.move(x, y);
+}
+
+/** Runs in the page, so it takes the image as base64. */
+function dispatchPaste(target: Node, { text, imageBase64 }: ClipboardContent): void {
+  const clipboardData = new DataTransfer();
+  if (text !== undefined) clipboardData.setData("text/plain", text);
+  if (imageBase64 !== undefined) {
+    const bytes = Uint8Array.from(atob(imageBase64), (char) => char.charCodeAt(0));
+    clipboardData.items.add(new File([bytes], "shot.png", { type: "image/png" }));
+  }
+  target.dispatchEvent(
+    new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }),
+  );
+}
+
+export async function pasteImage(target: Locator): Promise<void> {
+  await target.evaluate(dispatchPaste, { imageBase64: PNG_BASE64 });
+}
+
+/** Pastes with nothing focused, as a dictation tool's simulated paste over a selection does. */
+export async function pasteOnDocument(
+  page: Page,
+  { text, image = false }: DocumentPaste,
+): Promise<void> {
+  const document = await page.evaluateHandle(() => window.document);
+  await document.evaluate(dispatchPaste, { text, imageBase64: image ? PNG_BASE64 : undefined });
+  await document.dispose();
+}
+
+export async function pasteOverAssistantText(
+  page: Page,
+  text: string,
+  content: DocumentPaste,
+): Promise<void> {
+  await leaveFocusedField(page);
+  await selectAssistantText(page, { text });
+  await pasteOnDocument(page, content);
+}
+
+export async function dropImage(target: Locator): Promise<void> {
+  await dropFileOn(target, {
+    name: "dropped.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(PNG_BASE64, "base64"),
+  });
 }
 
 export function sentCommentsToggle(userMessage: Locator): Locator {

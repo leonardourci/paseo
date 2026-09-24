@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { QuoteAnchor } from "./fence";
 import { prepareOutgoingText } from "./send";
 import {
+  isSendable,
   loadedComments,
   useLoadedOutputStore,
   useOutputCommentFocusStore,
@@ -44,20 +45,20 @@ afterEach(() => {
 describe("useOutputCommentsStore", () => {
   it("adds a comment holding the typed key", () => {
     const id = addComment(FIRST, "w");
-    expect(pendingComments()).toEqual([{ ...FIRST, id, note: "w" }]);
+    expect(pendingComments()).toEqual([{ ...FIRST, id, note: "w", imageIds: [] }]);
   });
 
   it("appends to the pending comment on the same text instead of adding one", () => {
     const first = addComment(FIRST, "why");
     const again = addComment({ ...FIRST, quote: " alpha\n" }, "h");
     expect(again).toBe(first);
-    expect(pendingComments()).toEqual([{ ...FIRST, id: first, note: "why\nh" }]);
+    expect(pendingComments()).toEqual([{ ...FIRST, id: first, note: "why\nh", imageIds: [] }]);
   });
 
   it("leaves the joined comment's note as it is when there is nothing to add", () => {
     const first = addComment(FIRST, "why");
     expect(addComment(FIRST, "")).toBe(first);
-    expect(pendingComments()).toEqual([{ ...FIRST, id: first, note: "why" }]);
+    expect(pendingComments()).toEqual([{ ...FIRST, id: first, note: "why", imageIds: [] }]);
   });
 
   it.each([
@@ -69,8 +70,8 @@ describe("useOutputCommentsStore", () => {
     const first = addComment(FIRST, "one");
     const second = addComment(other, "two");
     expect(pendingComments()).toEqual([
-      { ...FIRST, id: first, note: "one" },
-      { ...other, id: second, note: "two" },
+      { ...FIRST, id: first, note: "one", imageIds: [] },
+      { ...other, id: second, note: "two", imageIds: [] },
     ]);
     expect(addComment(other, "more")).toBe(second);
   });
@@ -80,28 +81,106 @@ describe("useOutputCommentsStore", () => {
     const second = addComment(SECOND, "");
     useOutputCommentsStore.getState().updateNote({ draftKey: DRAFT_KEY, id: first, note: "why?" });
     expect(pendingComments()).toEqual([
-      { ...FIRST, id: first, note: "why?" },
-      { ...SECOND, id: second, note: "" },
+      { ...FIRST, id: first, note: "why?", imageIds: [] },
+      { ...SECOND, id: second, note: "", imageIds: [] },
     ]);
   });
 
-  it("ignores a note for a comment that is gone", () => {
+  it.each([
+    [
+      "a note",
+      (id: string) =>
+        useOutputCommentsStore.getState().updateNote({ draftKey: DRAFT_KEY, id, note: "late" }),
+    ],
+    [
+      "an image",
+      (id: string) =>
+        useOutputCommentsStore.getState().linkImage({ draftKey: DRAFT_KEY, id, imageId: "img-1" }),
+    ],
+  ])("ignores %s for a comment that is gone", (_, write) => {
     addComment(SECOND, "kept");
     const gone = addComment(FIRST, "gone");
-    const { deleteComment, updateNote } = useOutputCommentsStore.getState();
-    deleteComment({ draftKey: DRAFT_KEY, id: gone });
+    useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: [gone] });
     const drafts = useOutputCommentsStore.getState().drafts;
-    updateNote({ draftKey: DRAFT_KEY, id: gone, note: "late" });
+    write(gone);
     expect(useOutputCommentsStore.getState().drafts).toBe(drafts);
   });
 
   it("deletes one comment and drops the draft with its last one", () => {
     const first = addComment(FIRST, "first");
     const second = addComment(SECOND, "second");
-    useOutputCommentsStore.getState().deleteComment({ draftKey: DRAFT_KEY, id: first });
+    useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: [first] });
     expect(pendingComments().map((comment) => comment.id)).toEqual([second]);
-    useOutputCommentsStore.getState().deleteComment({ draftKey: DRAFT_KEY, id: second });
+    useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: [second] });
     expect(useOutputCommentsStore.getState().drafts).toEqual({});
+  });
+
+  it("links an image only to a comment that is still pending", () => {
+    const first = addComment(FIRST, "");
+    const { linkImage, deleteComments } = useOutputCommentsStore.getState();
+    expect(linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-1" })).toBe(true);
+    deleteComments({ draftKey: DRAFT_KEY, ids: [first] });
+    expect(linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-2" })).toBe(false);
+  });
+
+  it("adds an image id once and removes it", () => {
+    const first = addComment(FIRST, "");
+    const { linkImage, unlinkImage } = useOutputCommentsStore.getState();
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-1" });
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-2" });
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-1" });
+    expect(pendingComments()[0]?.imageIds).toEqual(["img-1", "img-2"]);
+    unlinkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-1" });
+    expect(pendingComments()[0]?.imageIds).toEqual(["img-2"]);
+  });
+
+  it("deleting a comment returns the image ids no other comment uses", () => {
+    const first = addComment(FIRST, "one");
+    const second = addComment(SECOND, "two");
+    const { linkImage } = useOutputCommentsStore.getState();
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "mine" });
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "shared" });
+    linkImage({ draftKey: DRAFT_KEY, id: second, imageId: "shared" });
+    expect(
+      useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: [first] }),
+    ).toEqual(["mine"]);
+    expect(
+      useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: [second] }),
+    ).toEqual(["shared"]);
+    expect(
+      useOutputCommentsStore.getState().deleteComments({ draftKey: DRAFT_KEY, ids: ["gone"] }),
+    ).toEqual([]);
+  });
+
+  it("deleting several comments keeps the others and the images they still use", () => {
+    const first = addComment(FIRST, "one");
+    const second = addComment(SECOND, "two");
+    const kept = addComment({ ...FIRST, sourceItemId: "a2" }, "three");
+    const { linkImage } = useOutputCommentsStore.getState();
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "first-only" });
+    linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "both-deleted" });
+    linkImage({ draftKey: DRAFT_KEY, id: second, imageId: "both-deleted" });
+    linkImage({ draftKey: DRAFT_KEY, id: second, imageId: "shared-with-kept" });
+    linkImage({ draftKey: DRAFT_KEY, id: kept, imageId: "shared-with-kept" });
+
+    expect(
+      useOutputCommentsStore
+        .getState()
+        .deleteComments({ draftKey: DRAFT_KEY, ids: [first, second, "gone"] }),
+    ).toEqual(["first-only", "both-deleted"]);
+    expect(pendingComments().map((comment) => comment.id)).toEqual([kept]);
+  });
+
+  it("counts a blank note with an image still in the draft as content", () => {
+    const first = addComment(FIRST, "  ");
+    useOutputCommentsStore
+      .getState()
+      .linkImage({ draftKey: DRAFT_KEY, id: first, imageId: "img-1" });
+    const comment = pendingComments()[0];
+    if (!comment) throw new Error("comment missing");
+    expect(isSendable(comment, ["img-1"])).toBe(true);
+    expect(isSendable(comment, ["other"])).toBe(false);
+    expect(isSendable({ ...comment, note: "why?" }, [])).toBe(true);
   });
 
   it("keeps a sent comment whose note changed while its message was in flight", () => {
@@ -143,6 +222,7 @@ describe("useOutputCommentsStore", () => {
     const prepared = prepareOutgoingText({
       text: "",
       pending: drafts[DRAFT_KEY] ?? [],
+      imageIds: [],
       loaded: ["a1"],
     });
     removeSent({ draftKey: DRAFT_KEY, comments: prepared.sent });
@@ -161,16 +241,19 @@ describe("useOutputCommentsStore", () => {
 
   it("puts restored comments back, joining one on the same text as a pending comment", () => {
     const pending = addComment(FIRST, "later");
+    useOutputCommentsStore
+      .getState()
+      .linkImage({ draftKey: DRAFT_KEY, id: pending, imageId: "img-1" });
     useOutputCommentsStore.getState().restoreComments({
       draftKey: DRAFT_KEY,
       comments: [
-        { ...FIRST, quote: "alpha ", id: "restored", note: "queued" },
-        { ...SECOND, id: "other", note: "two" },
+        { ...FIRST, quote: "alpha ", id: "restored", note: "queued", imageIds: ["img-1", "img-2"] },
+        { ...SECOND, id: "other", note: "two", imageIds: [] },
       ],
     });
     expect(pendingComments()).toEqual([
-      { ...FIRST, id: pending, note: "later\nqueued" },
-      { ...SECOND, id: "other", note: "two" },
+      { ...FIRST, id: pending, note: "later\nqueued", imageIds: ["img-1", "img-2"] },
+      { ...SECOND, id: "other", note: "two", imageIds: [] },
     ]);
   });
 
@@ -193,7 +276,7 @@ describe("useOutputCommentsStore", () => {
       .addComment({ ...SECOND, draftKey: "draft-2" }, "two");
     useOutputCommentsStore.getState().clearDraft(DRAFT_KEY);
     expect(useOutputCommentsStore.getState().drafts).toEqual({
-      "draft-2": [{ ...SECOND, id: other, note: "two" }],
+      "draft-2": [{ ...SECOND, id: other, note: "two", imageIds: [] }],
     });
   });
 });
@@ -218,7 +301,9 @@ describe("useOutputCommentsStore persistence", () => {
   const STORAGE_NAME = "@paseo:output-comments";
 
   it("brings the pending comments back after a reload", async () => {
-    const id = addComment(FIRST, "why?");
+    const inItem: QuoteAnchor = { ...FIRST, endItem: [1, 0] };
+    const id = addComment(inItem, "why?");
+    useOutputCommentsStore.getState().linkImage({ draftKey: DRAFT_KEY, id, imageId: "img-1" });
     const saved = await AsyncStorage.getItem(STORAGE_NAME);
     if (saved === null) throw new Error("Expected the store to be saved");
     expect(Object.keys(JSON.parse(saved).state)).toEqual(["drafts"]);
@@ -227,7 +312,19 @@ describe("useOutputCommentsStore persistence", () => {
     await AsyncStorage.setItem(STORAGE_NAME, saved);
     await useOutputCommentsStore.persist.rehydrate();
 
-    expect(pendingComments()).toEqual([{ ...FIRST, id, note: "why?" }]);
+    expect(pendingComments()).toEqual([{ ...inItem, id, note: "why?", imageIds: ["img-1"] }]);
+  });
+
+  it("loads comments saved before they recorded images or a list item", async () => {
+    const saved = JSON.stringify({
+      state: { drafts: { [DRAFT_KEY]: [{ ...FIRST, id: "c1", note: "why?" }] } },
+      version: 1,
+    });
+    await AsyncStorage.setItem(STORAGE_NAME, saved);
+    await useOutputCommentsStore.persist.rehydrate();
+
+    expect(pendingComments()).toEqual([{ ...FIRST, id: "c1", note: "why?", imageIds: [] }]);
+    expect(await AsyncStorage.getItem(STORAGE_NAME)).toBe(saved);
   });
 
   it("leaves the saved comments alone while streaming output is published", async () => {

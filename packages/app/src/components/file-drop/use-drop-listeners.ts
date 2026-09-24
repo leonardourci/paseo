@@ -233,13 +233,16 @@ export function useDropListeners({
       }
 
       async function handleDrop(e: DragEvent) {
+        // A descendant that handled the drop prevents it and lets it bubble, so the drag still
+        // ends without the files reaching the sink.
+        const claimedByDescendant = e.defaultPrevented;
         e.preventDefault();
         e.stopPropagation();
 
         isDragging.value = false;
         dragCounter.current = 0;
 
-        if (disabledRef.current || suppressed.value) return;
+        if (claimedByDescendant || disabledRef.current || suppressed.value) return;
 
         const sink = getSink();
         if (!sink) return;
