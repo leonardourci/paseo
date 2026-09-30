@@ -181,12 +181,35 @@ describe("dictation transcript behavior", () => {
       attachments: [],
       cwd: "/repo",
       autoSend: true,
+      deliverToComment: () => false,
     });
 
     expect(actions).toEqual([
       "replace:typed context spoken prompt",
       "submit:typed context spoken prompt",
     ]);
+  });
+
+  it("gives an output comment's transcript to the comment without sending", () => {
+    const actions: string[] = [];
+
+    applyDictationTranscript("spoken note", {
+      value: "typed context",
+      defaultSendBehavior: "queue",
+      isAgentRunning: true,
+      onQueue: (payload) => actions.push(`queue:${payload.text}`),
+      replaceText: (text) => actions.push(`replace:${text}`),
+      onSubmit: (payload) => actions.push(`submit:${payload.text}`),
+      attachments: [],
+      cwd: "/repo",
+      autoSend: true,
+      deliverToComment: (text) => {
+        actions.push(`comment:${text}`);
+        return true;
+      },
+    });
+
+    expect(actions).toEqual(["comment:spoken note"]);
   });
 });
 

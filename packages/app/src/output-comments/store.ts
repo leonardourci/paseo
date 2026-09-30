@@ -96,6 +96,8 @@ interface ExpandedSentCommentsStore {
 interface NoteFocus {
   surfaceId: string;
   id: string;
+  /** Where the caret goes; the note's end when absent. */
+  caret?: number;
 }
 
 interface OutputCommentFocusStore {
@@ -322,6 +324,13 @@ export function loadedComments(
   loaded: readonly string[] | undefined,
 ): PendingOutputComment[] {
   return pending.filter((comment) => loaded === undefined || loaded.includes(comment.sourceItemId));
+}
+
+export function findComment(
+  drafts: PendingDrafts,
+  { draftKey, id }: CommentRef,
+): PendingOutputComment | undefined {
+  return drafts[draftKey]?.find((comment) => comment.id === id);
 }
 
 export function isSendable(comment: PendingOutputComment, imageIds: readonly string[]): boolean {

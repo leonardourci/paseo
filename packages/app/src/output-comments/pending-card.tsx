@@ -18,15 +18,16 @@ import { isWeb } from "@/constants/platform";
 import { OutputCommentBadge } from "./badge";
 import { QuoteLine, cardStyles } from "./card";
 import { outputCommentCardId, type OutputCommentsComposer } from "./composer-context";
+import { isDictationTarget } from "./dictation";
 import { useNoteImages } from "./note-images";
 import { useNoteMentions } from "./note-mentions";
 import { revealOutputCommentQuote } from "./reveal";
 import {
+  findComment,
   isFocusing,
   isSendable,
   useOutputCommentFocusStore,
   useOutputCommentsStore,
-  type PendingOutputComment,
   type PlacedOutputComment,
 } from "./store";
 import type { MessageBlocksOf } from "./types";
@@ -57,14 +58,6 @@ const NoteInput = withUnistyles(EditingTextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
 }));
 const NO_IMAGE_IDS: readonly string[] = [];
-
-function findComment(
-  drafts: Record<string, PendingOutputComment[]>,
-  draftKey: string,
-  id: string,
-): PendingOutputComment | undefined {
-  return drafts[draftKey]?.find((candidate) => candidate.id === id);
-}
 
 function NoteImage({ image, onOpen, onRemove }: NoteImageProps) {
   const { t } = useTranslation();
@@ -126,7 +119,7 @@ export function PendingOutputCommentCard({
   const updateNote = useOutputCommentsStore((state) => state.updateNote);
   const deleteComments = useOutputCommentsStore((state) => state.deleteComments);
   const unlinkImage = useOutputCommentsStore((state) => state.unlinkImage);
-  const stored = useOutputCommentsStore((state) => findComment(state.drafts, draftKey, id));
+  const stored = useOutputCommentsStore((state) => findComment(state.drafts, { draftKey, id }));
   const note = stored?.note ?? "";
   const imageIds = stored?.imageIds ?? NO_IMAGE_IDS;
   const images = useMemo(
@@ -134,16 +127,25 @@ export function PendingOutputCommentCard({
     [imageIds, draftImages],
   );
   const draftImageIds = useMemo(() => draftImages.map((image) => image.id), [draftImages]);
+  const cardDataSet = useMemo(() => ({ outputCommentId: id }), [id]);
 
   useEffect(() => {
     const input = inputRef.current;
     if (!shouldFocus || !input) return;
-    const current = findComment(useOutputCommentsStore.getState().drafts, draftKey, id);
+    const current = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id });
     const text = current?.note ?? input.getText();
+    const caret = useOutputCommentFocusStore.getState().focus?.caret ?? text.length;
     input.focus();
-    input.replaceText(text, { start: text.length, end: text.length });
+    input.replaceText(text, { start: caret, end: caret });
     clearFocus({ surfaceId, id });
   }, [clearFocus, draftKey, id, shouldFocus, surfaceId]);
+
+  // The input is uncontrolled: a note changed from outside it, such as by a transcript, is copied
+  // in without taking focus.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input && input.getText() !== note) input.replaceText(note);
+  }, [note]);
 
   const handleChangeText = useCallback(
     (text: string) => updateNote({ draftKey, id, note: text }),
@@ -162,7 +164,8 @@ export function PendingOutputCommentCard({
   }, [deleteComments, draftKey, id, removeDraftImage]);
   // Read the store: the blur may come from an input that is already unmounting.
   const dropIfEmpty = useCallback(() => {
-    const current = findComment(useOutputCommentsStore.getState().drafts, draftKey, id);
+    if (isDictationTarget(id)) return;
+    const current = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id });
     if (current && !isSendable(current, draftImageIds)) handleRemove();
   }, [draftImageIds, draftKey, handleRemove, id]);
   const handleBlur = useCallback(() => {
@@ -201,6 +204,7 @@ export function PendingOutputCommentCard({
     <Pressable
       ref={cardRef}
       nativeID={cardId}
+      dataSet={cardDataSet}
       onPress={handlePress}
       role="group"
       accessibilityLabel={t("outputComments.label", { number })}

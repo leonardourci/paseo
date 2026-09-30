@@ -12,12 +12,14 @@ import { SPACING } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { collectImageFilesFromClipboardData } from "@/utils/image-attachments-from-files";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
+import { outputCommentCardId } from "./composer-context";
+import { registerDictationSurface, type FocusedNote } from "./dictation";
 import type { QuoteAnchor } from "./fence";
 import { attachNoteImage } from "./note-images.web";
 import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
 import { readCommentableSelection, type CommentableSelection } from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
-import { SURFACE_LAYER, surfaceRootOf } from "./surface.web";
+import { PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import type { OutputCommentSelectionLayerProps } from "./types";
 
 interface ToolbarAnchor {
@@ -82,6 +84,16 @@ function toolbarPosition(state: Exclude<ToolbarState, { phase: "hidden" }>) {
   // Hidden until measured, so the first frame is not drawn off-centre.
   const opacity = state.phase === "shown" ? 1 : 0;
   return inlineUnistylesStyle({ top: anchor.top, left, opacity });
+}
+
+/** The pending comment in this pane whose note has focus, with the note's selection. */
+function readFocusedNote(surfaceId: string): FocusedNote | null {
+  const input = document.activeElement;
+  if (!(input instanceof HTMLTextAreaElement)) return null;
+  const card = input.closest<HTMLElement>(PENDING_CARD);
+  const id = card?.dataset.outputCommentId;
+  if (!card || id === undefined || card.id !== outputCommentCardId(surfaceId, id)) return null;
+  return { id, range: { start: input.selectionStart, end: input.selectionEnd } };
 }
 
 function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
@@ -152,6 +164,20 @@ export function OutputCommentSelectionLayer({
       return id;
     },
     [addComment, clear, draftKey, focusNote, surfaceId],
+  );
+
+  useEffect(
+    () =>
+      registerDictationSurface(surfaceId, {
+        draftKey,
+        focusedNote: () => readFocusedNote(surfaceId),
+        startCommentOnSelection: () => {
+          const selection = readSelection();
+          return selection ? startComment(selection, "") : null;
+        },
+        canFocusNote: () => isEnabled && document.hasFocus() && !isEditable(document.activeElement),
+      }),
+    [draftKey, isEnabled, readSelection, startComment, surfaceId],
   );
 
   useEffect(() => {

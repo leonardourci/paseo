@@ -64,12 +64,19 @@ interface DictationTranscriptContext {
   attachments: MessagePayload["attachments"];
   cwd: string;
   autoSend: boolean;
+  /** False when the transcript is the composer's; an output comment's is never sent. */
+  deliverToComment: (text: string) => boolean;
+}
+
+export function appendTranscript(before: string, text: string): string {
+  const shouldPad = before.length > 0 && !/\s$/.test(before);
+  return `${before}${shouldPad ? " " : ""}${text}`;
 }
 
 export function applyDictationTranscript(text: string, ctx: DictationTranscriptContext): void {
   if (!text) return;
-  const shouldPad = ctx.value.length > 0 && !/\s$/.test(ctx.value);
-  const nextValue = `${ctx.value}${shouldPad ? " " : ""}${text}`;
+  if (ctx.deliverToComment(text)) return;
+  const nextValue = appendTranscript(ctx.value, text);
 
   if (!ctx.autoSend) {
     ctx.replaceText(nextValue);

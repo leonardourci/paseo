@@ -23,7 +23,10 @@ import { useTranslation } from "react-i18next";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
 import { useDictation } from "@/hooks/use-dictation";
+import { useStableEvent } from "@/hooks/use-stable-event";
 import { DictationOverlay } from "@/components/dictation-controls";
+import { useOutputCommentDictation } from "@/output-comments/dictation";
+import { KeepSelectionOnPress } from "@/output-comments/keep-selection-on-press";
 import { RealtimeVoiceOverlay } from "@/components/realtime-voice-overlay";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
@@ -872,6 +875,7 @@ interface StartDictationContext {
   dictationUnavailableMessage: string | null | undefined;
   canStartDictation: () => boolean;
   toast: { error: (msg: string) => void };
+  beginCommentDictation: () => void;
   startDictation: () => Promise<void>;
 }
 
@@ -883,6 +887,7 @@ async function startDictationIfAvailableImpl(ctx: StartDictationContext): Promis
   if (!ctx.canStartDictation()) {
     return;
   }
+  ctx.beginCommentDictation();
   await ctx.startDictation();
 }
 
@@ -1293,7 +1298,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       };
     }, [onFocusChange]);
 
-    const handleDictationTranscript = useCallback(
+    // Runs once a transcript lands, by which time `commentDictation` below exists.
+    const handleDictationTranscript = useStableEvent(
       (text: string, _meta: { requestId: string }) => {
         const autoSend = sendAfterTranscriptRef.current;
         sendAfterTranscriptRef.current = false;
@@ -1307,9 +1313,9 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           attachments,
           cwd,
           autoSend,
+          deliverToComment: commentDictation.deliver,
         });
       },
-      [replaceText, onSubmit, onQueue, attachments, cwd, isAgentRunning, defaultSendBehavior],
     );
 
     const handleDictationError = useCallback(
@@ -1366,6 +1372,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       canConfirm: canConfirmDictation,
       enableDuration: true,
     });
+    const commentDictation = useOutputCommentDictation(dictationStatus);
 
     const isRealtimeVoiceForCurrentAgent = computeIsRealtimeVoiceForAgent(
       voice,
@@ -1394,9 +1401,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           dictationUnavailableMessage,
           canStartDictation,
           toast,
+          beginCommentDictation: commentDictation.begin,
           startDictation,
         }),
-      [canStartDictation, dictationUnavailableMessage, startDictation, toast],
+      [canStartDictation, commentDictation, dictationUnavailableMessage, startDictation, toast],
     );
 
     const handleVoicePress = useCallback(
@@ -1830,18 +1838,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             {/* Right: voice button, contextual button (realtime/send/cancel) */}
             <View style={styles.rightButtonGroup}>
               {beforeVoiceContent}
-              <VoiceButtonTooltip
-                visible={mode.showVoice}
-                onVoicePress={handleVoicePress}
-                isDictationStartEnabled={isDictationStartEnabled}
-                voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
-                voiceButtonStyle={voiceButtonStyle}
-                renderVoiceButtonIcon={renderVoiceButtonIcon}
-                voiceTooltipText={voiceTooltipText}
-                isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
-                voiceMuteToggleKeys={voiceMuteToggleKeys}
-                dictationToggleKeys={dictationToggleKeys}
-              />
+              <KeepSelectionOnPress>
+                <VoiceButtonTooltip
+                  visible={mode.showVoice}
+                  onVoicePress={handleVoicePress}
+                  isDictationStartEnabled={isDictationStartEnabled}
+                  voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
+                  voiceButtonStyle={voiceButtonStyle}
+                  renderVoiceButtonIcon={renderVoiceButtonIcon}
+                  voiceTooltipText={voiceTooltipText}
+                  isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
+                  voiceMuteToggleKeys={voiceMuteToggleKeys}
+                  dictationToggleKeys={dictationToggleKeys}
+                />
+              </KeepSelectionOnPress>
               {rightContent}
               <PrimaryAction
                 kind={primaryActionKind}
