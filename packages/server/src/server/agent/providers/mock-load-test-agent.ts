@@ -739,6 +739,7 @@ export class MockLoadTestAgentSession implements AgentSession {
   private modeId: string | null;
   private modelId: string | null;
   private readonly assistantResponse: string | null;
+  private readonly hasTrailingActivity: boolean;
   private readonly streamingAssistantResponse: string | null;
   private readonly streamingAssistantIntervalMs: number;
   private readonly rewindError: string | null;
@@ -754,6 +755,7 @@ export class MockLoadTestAgentSession implements AgentSession {
       typeof options.config.featureValues?.mockAssistantResponse === "string"
         ? options.config.featureValues.mockAssistantResponse
         : null;
+    this.hasTrailingActivity = options.config.featureValues?.mockAssistantTrailingActivity === true;
     this.streamingAssistantResponse =
       typeof options.config.featureValues?.mockStreamingAssistantResponse === "string"
         ? options.config.featureValues.mockStreamingAssistantResponse
@@ -1259,6 +1261,24 @@ export class MockLoadTestAgentSession implements AgentSession {
       text: finalText,
       messageId: turn.assistantMessageId,
     });
+    if (this.hasTrailingActivity) {
+      this.emitTimeline(
+        turn.turnId,
+        createToolCall({
+          callId: `${turn.turnId}:trailing-shell`,
+          name: "bash",
+          status: "completed",
+          detail: {
+            type: "shell",
+            command: "true",
+            cwd: "/tmp/paseo-mock-load",
+            output: "",
+            exitCode: 0,
+          },
+        }),
+      );
+      this.emitTimeline(turn.turnId, { type: "reasoning", text: "Nothing else to check." });
+    }
     this.activeTurn = null;
     this.emit({
       type: "turn_completed",

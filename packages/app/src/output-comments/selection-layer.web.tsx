@@ -6,7 +6,10 @@ import { MessageSquarePlus, Quote } from "lucide-react-native";
 import { getAssistantBlockRowId } from "@/agent-stream/presentation";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useSettings } from "@/hooks/use-settings";
 import { hasActiveWebOverlay } from "@/lib/overlay-root";
+import { isEditingSurface } from "@/output-caret/host";
+import { useIsOutputCaretAvailable } from "@/output-caret/layer";
 import { usePaneFocus } from "@/panels/pane-context";
 import { SPACING } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
@@ -19,7 +22,7 @@ import { attachNoteImage } from "./note-images.web";
 import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
 import { readCommentableSelection, type CommentableSelection } from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
-import { PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
+import { CONTROL, PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import type { OutputCommentSelectionLayerProps } from "./types";
 
 interface ToolbarAnchor {
@@ -55,14 +58,11 @@ function toolbarReducer(state: ToolbarState, action: ToolbarAction): ToolbarStat
   }
 }
 
-function isEditable(element: Element | null): boolean {
-  if (!(element instanceof HTMLElement)) return false;
-  return element.isContentEditable || element.tagName === "INPUT" || element.tagName === "TEXTAREA";
-}
-
 /** Input aimed at the output, not at a field or an overlay. */
 function isOutputEvent(event: Event): boolean {
-  return !event.defaultPrevented && !hasActiveWebOverlay() && !isEditable(document.activeElement);
+  return (
+    !event.defaultPrevented && !hasActiveWebOverlay() && !isEditingSurface(document.activeElement)
+  );
 }
 
 function isOutputKey(event: KeyboardEvent): boolean {
@@ -109,6 +109,10 @@ export function OutputCommentSelectionLayer({
   const { isInteractive } = usePaneFocus();
   const isActive = useRetainedPanelActive();
   const isEnabled = isActive && isInteractive;
+  const isCaretSettingOn = useSettings((state) => state.outputCaretEnabled);
+  const isCaretAvailable = useIsOutputCaretAvailable();
+  // As the caret layer gates itself; this layer only renders with a composer.
+  const isCaretOn = isCaretSettingOn && isCaretAvailable;
   const { surfaceId, insertQuote } = composer;
   const layerRef = useRef<HTMLDivElement>(null);
   const isShownRef = useRef(false);
@@ -175,7 +179,8 @@ export function OutputCommentSelectionLayer({
           const selection = readSelection();
           return selection ? startComment(selection, "") : null;
         },
-        canFocusNote: () => isEnabled && document.hasFocus() && !isEditable(document.activeElement),
+        canFocusNote: () =>
+          isEnabled && document.hasFocus() && !isEditingSurface(document.activeElement),
       }),
     [draftKey, isEnabled, readSelection, startComment, surfaceId],
   );
@@ -201,8 +206,23 @@ export function OutputCommentSelectionLayer({
         return Boolean(surfaceRoot()?.querySelector(`[data-history-row-id="${rowId}"]`));
       },
     };
+    const onCaretEnter = (event: KeyboardEvent): boolean => {
+      if (document.activeElement?.closest(CONTROL)) return false;
+      const selection = readSelection();
+      if (!selection) return false;
+      event.preventDefault();
+      if (event.shiftKey) {
+        insertQuote(selection.quote);
+        window.getSelection()?.collapseToEnd();
+        clear();
+      } else {
+        startComment(selection, "");
+      }
+      return true;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isOutputKey(event)) return;
+      if (event.key === "Enter" && isCaretOn && onCaretEnter(event)) return;
       const selection = isTypeToCommentKey(event.key) ? readSelection() : null;
       if (selection) startComment(selection, event.key);
       else if (!typeIntoFocusingNote(focusingNote, event.key)) return;
@@ -252,6 +272,8 @@ export function OutputCommentSelectionLayer({
     clear,
     composer,
     draftKey,
+    insertQuote,
+    isCaretOn,
     isEnabled,
     readSelection,
     showForSelection,

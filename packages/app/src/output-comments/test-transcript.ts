@@ -9,7 +9,7 @@ export function mountTranscript(...rows: TranscriptRow[]): HTMLElement {
       const block = blocks.get(messageId) ?? 0;
       blocks.set(messageId, block + 1);
       return `
-        <div data-history-row-id="${messageId}:block:${block}" data-message-id="${messageId}">
+        <div data-history-row-id="${messageId}:block:${block}" data-message-id="${messageId}" data-row-kind="assistant_message">
           <div data-testid="assistant-message">
             <div data-message-text="true">${html}</div>
           </div>

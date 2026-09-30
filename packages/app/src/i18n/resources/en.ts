@@ -2217,6 +2217,22 @@ export const en = {
           zhCN: "Simplified Chinese",
         },
       },
+      outputCaret: {
+        title: "Keyboard caret in output",
+        description: "Move through agent output with the arrow keys to select, comment and quote",
+        sectionTitle: "Keyboard caret",
+        linesDisabledHint: "Turn on Keyboard caret in output to change these",
+        shortcutHint:
+          "Press {{shortcut}} in the composer to jump to the start of the latest reply, and press it again to come back",
+        linesAbove: {
+          label: "Lines kept above the caret",
+          description: "The chat scrolls to keep this many lines visible above the caret",
+        },
+        linesBelow: {
+          label: "Lines kept below the caret",
+          description: "The chat scrolls to keep this many lines visible below the caret",
+        },
+      },
     },
     diagnostics: {
       title: "Diagnostics",

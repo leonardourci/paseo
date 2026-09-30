@@ -2149,6 +2149,25 @@ export const es: TranslationResources = {
           zhCN: "中文",
         },
       },
+      outputCaret: {
+        title: "Cursor de teclado en la salida",
+        description:
+          "Recorre la salida del agente con las flechas para seleccionar, comentar y citar",
+        sectionTitle: "Cursor de teclado",
+        linesDisabledHint: "Activa Cursor de teclado en la salida para cambiar estos valores",
+        shortcutHint:
+          "Pulsa {{shortcut}} en el editor de mensajes para saltar al inicio de la última respuesta, y vuelve a pulsarlo para regresar",
+        linesAbove: {
+          label: "Líneas visibles sobre el cursor",
+          description:
+            "El chat se desplaza para mantener visibles estas líneas por encima del cursor",
+        },
+        linesBelow: {
+          label: "Líneas visibles bajo el cursor",
+          description:
+            "El chat se desplaza para mantener visibles estas líneas por debajo del cursor",
+        },
+      },
     },
     diagnostics: {
       title: "Diagnóstico",

@@ -1,4 +1,5 @@
 import type { KeyboardFocusScope } from "@/keyboard/actions";
+import { isEditingSurface } from "@/output-caret/host";
 
 function isElement(value: unknown): value is Element {
   return typeof Element !== "undefined" && value instanceof Element;
@@ -64,16 +65,7 @@ export function resolveKeyboardFocusScope(input: {
     return "message-input";
   }
 
-  if (
-    candidates.some((element) => {
-      const editable = element as HTMLElement;
-      if (editable.isContentEditable) {
-        return true;
-      }
-      const tag = element.tagName.toLowerCase();
-      return tag === "input" || tag === "textarea" || tag === "select";
-    })
-  ) {
+  if (candidates.some(isEditingSurface)) {
     return commandCenterOpen ? "command-center" : "editable";
   }
 

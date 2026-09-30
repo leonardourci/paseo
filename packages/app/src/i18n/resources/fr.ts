@@ -2152,6 +2152,25 @@ export const fr: TranslationResources = {
           zhCN: "中文",
         },
       },
+      outputCaret: {
+        title: "Curseur clavier dans la sortie",
+        description:
+          "Parcourir la sortie de l’agent avec les flèches pour sélectionner, commenter et citer",
+        sectionTitle: "Curseur clavier",
+        linesDisabledHint: "Activez Curseur clavier dans la sortie pour modifier ces valeurs",
+        shortcutHint:
+          "Appuyez sur {{shortcut}} dans l’éditeur de message pour aller au début de la dernière réponse, et appuyez à nouveau pour revenir",
+        linesAbove: {
+          label: "Lignes gardées au-dessus du curseur",
+          description:
+            "La discussion défile pour garder ce nombre de lignes visibles au-dessus du curseur",
+        },
+        linesBelow: {
+          label: "Lignes gardées sous le curseur",
+          description:
+            "La discussion défile pour garder ce nombre de lignes visibles sous le curseur",
+        },
+      },
     },
     diagnostics: {
       title: "Diagnostic",

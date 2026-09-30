@@ -59,6 +59,8 @@ export interface StreamViewportHandle {
    * where it is on screen now.
    */
   holdElementPosition?: (element: HTMLElement) => () => void;
+  /** Stops following output, as scrolling up does. */
+  stopFollowingOutput?: () => void;
 }
 
 export interface StreamSegmentRenderers {

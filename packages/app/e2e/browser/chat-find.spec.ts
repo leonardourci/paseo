@@ -19,9 +19,7 @@ import {
 } from "../support/helpers/composer";
 
 import { openCommandCenter, closeCommandCenter } from "../support/helpers/command-center";
-
-const MAC_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+import { MAC_USER_AGENT } from "../support/helpers/user-agent";
 
 const FILLER = Array.from({ length: 400 }, (_, index) => `filler${index}`).join(" ");
 const STREAMED_RESPONSE = [

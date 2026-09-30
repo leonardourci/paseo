@@ -63,6 +63,9 @@ export const DEFAULT_CODE_FONT_SIZE = 12; // == FONT_SIZE.code
 export const MIN_CODE_FONT_SIZE = 9;
 export const MAX_CODE_FONT_SIZE = 22; // line-height 1.5×22=33 stays safe
 export const MAX_FONT_FAMILY_LENGTH = 200;
+const DEFAULT_OUTPUT_CARET_LINES = 5;
+export const MIN_OUTPUT_CARET_LINES = 0;
+export const MAX_OUTPUT_CARET_LINES = 20;
 
 export interface AppSettings {
   theme: ThemePreference;
@@ -88,6 +91,9 @@ export interface AppSettings {
   autoExpandReasoning: boolean;
   toolCallDetailLevel: ToolCallDetailLevel;
   chatOutlineEnabled: boolean;
+  outputCaretEnabled: boolean;
+  outputCaretLinesAbove: number;
+  outputCaretLinesBelow: number;
   vimKeybindings: boolean;
   /** Desktop-only preferences for implicit opens into the ordinary side pane. */
   openInSidePane: OpenInSidePanePreferences;
@@ -141,6 +147,9 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   autoExpandReasoning: false,
   toolCallDetailLevel: "detailed",
   chatOutlineEnabled: true,
+  outputCaretEnabled: false,
+  outputCaretLinesAbove: DEFAULT_OUTPUT_CARET_LINES,
+  outputCaretLinesBelow: DEFAULT_OUTPUT_CARET_LINES,
   vimKeybindings: false,
   openInSidePane: DEFAULT_OPEN_IN_SIDE_PANE_PREFERENCES,
   pullRequestOpenLocation: "explorer",
@@ -155,7 +164,7 @@ export const DEFAULT_APP_SETTINGS: Settings = {
 function clampedNumber(min: number, max: number) {
   return z
     .unknown()
-    .transform((value) => parseClampedFontSize(value, { min, max }))
+    .transform((value) => parseClampedInteger(value, { min, max }))
     .pipe(z.number());
 }
 
@@ -236,6 +245,13 @@ const StoredAppSettingsSchema = z
     // COMPAT(compactToolCalls): migrated in v0.1.105, remove after 2027-01-12.
     compactToolCalls: z.boolean().optional().catch(undefined),
     chatOutlineEnabled: z.boolean().catch(true),
+    outputCaretEnabled: z.boolean().catch(false),
+    outputCaretLinesAbove: clampedNumber(MIN_OUTPUT_CARET_LINES, MAX_OUTPUT_CARET_LINES).catch(
+      DEFAULT_OUTPUT_CARET_LINES,
+    ),
+    outputCaretLinesBelow: clampedNumber(MIN_OUTPUT_CARET_LINES, MAX_OUTPUT_CARET_LINES).catch(
+      DEFAULT_OUTPUT_CARET_LINES,
+    ),
     vimKeybindings: z.boolean().catch(false),
     openInSidePane: z
       .object({
@@ -457,7 +473,7 @@ export function parseTerminalScrollbackLines(value: unknown): number | null {
   );
 }
 
-export function parseClampedFontSize(
+export function parseClampedInteger(
   value: unknown,
   bounds: { min: number; max: number },
 ): number | null {

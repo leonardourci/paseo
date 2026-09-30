@@ -27,7 +27,7 @@ import {
   MIN_CODE_FONT_SIZE,
   MIN_CONTENT_FONT_SIZE,
   MIN_UI_BASE_FONT_SIZE,
-  parseClampedFontSize,
+  parseClampedInteger,
   sanitizeFontFamily,
   useAppSettings,
   type AppSettings,
@@ -620,7 +620,7 @@ export function AppearanceSection() {
   }, []);
 
   const commitUiBaseSize = useCallback(() => {
-    const parsed = parseClampedFontSize(uiBaseSizeDraft, {
+    const parsed = parseClampedInteger(uiBaseSizeDraft, {
       min: MIN_UI_BASE_FONT_SIZE,
       max: MAX_UI_BASE_FONT_SIZE,
     });
@@ -632,7 +632,7 @@ export function AppearanceSection() {
   }, [settings.uiBaseFontSize, uiBaseSizeDraft, updateSettings]);
 
   const commitCodeSize = useCallback(() => {
-    const parsed = parseClampedFontSize(codeSizeDraft, {
+    const parsed = parseClampedInteger(codeSizeDraft, {
       min: MIN_CODE_FONT_SIZE,
       max: MAX_CODE_FONT_SIZE,
     });
@@ -644,7 +644,7 @@ export function AppearanceSection() {
   }, [codeSizeDraft, settings.codeFontSize, updateSettings]);
 
   const commitContentSize = useCallback(() => {
-    const parsed = parseClampedFontSize(contentSizeDraft, {
+    const parsed = parseClampedInteger(contentSizeDraft, {
       min: MIN_CONTENT_FONT_SIZE,
       max: MAX_CONTENT_FONT_SIZE,
     });

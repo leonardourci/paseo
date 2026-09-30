@@ -2132,6 +2132,23 @@ export const ptBR: TranslationResources = {
           zhCN: "Chinês simplificado",
         },
       },
+      outputCaret: {
+        title: "Cursor de teclado na saída",
+        description:
+          "Permite percorrer a saída do agente com as setas para selecionar, comentar e citar",
+        sectionTitle: "Cursor de teclado",
+        linesDisabledHint: "Ative Cursor de teclado na saída para alterar esses valores",
+        shortcutHint:
+          "Pressione {{shortcut}} no editor de mensagens para ir ao início da última resposta, e pressione de novo para voltar",
+        linesAbove: {
+          label: "Linhas mantidas acima do cursor",
+          description: "O chat rola para manter essa quantidade de linhas visível acima do cursor",
+        },
+        linesBelow: {
+          label: "Linhas mantidas abaixo do cursor",
+          description: "O chat rola para manter essa quantidade de linhas visível abaixo do cursor",
+        },
+      },
     },
     diagnostics: {
       title: "Diagnósticos",

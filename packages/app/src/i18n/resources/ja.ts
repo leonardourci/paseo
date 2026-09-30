@@ -2116,6 +2116,24 @@ export const ja: TranslationResources = {
           zhCN: "簡体字中国語",
         },
       },
+      outputCaret: {
+        title: "出力内のキーボードキャレット",
+        description:
+          "矢印キーでエージェントの出力内を移動し、選択・コメント・引用できるようにします",
+        sectionTitle: "キーボードキャレット",
+        linesDisabledHint:
+          "これらを変更するには「出力内のキーボードキャレット」をオンにしてください",
+        shortcutHint:
+          "メッセージ入力欄で {{shortcut}} を押すと最新の返信の先頭に移動し、もう一度押すと戻ります",
+        linesAbove: {
+          label: "キャレットの上に残す行数",
+          description: "キャレットの上にこの行数が見えるようにチャットをスクロールします",
+        },
+        linesBelow: {
+          label: "キャレットの下に残す行数",
+          description: "キャレットの下にこの行数が見えるようにチャットをスクロールします",
+        },
+      },
     },
     diagnostics: {
       title: "診断",

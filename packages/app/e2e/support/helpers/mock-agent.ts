@@ -11,16 +11,38 @@ export interface MockAgentWorkspace {
   cleanup(): Promise<void>;
 }
 
-export interface MockAgentOptions {
-  repoPrefix: string;
+export interface MockAgentConfig {
   title: string;
-  repo?: Parameters<typeof seedWorkspace>[0]["repo"];
-  port?: number;
   initialPrompt?: string;
   model?: string;
   thinkingOptionId?: string;
   modeId?: string;
   featureValues?: Record<string, unknown>;
+}
+
+export interface MockAgentOptions extends MockAgentConfig {
+  repoPrefix: string;
+  repo?: Parameters<typeof seedWorkspace>[0]["repo"];
+  port?: number;
+}
+
+/** Creates a ready mock-provider agent in a workspace another agent was seeded in; returns its id. */
+export async function createMockAgent(
+  workspace: Pick<MockAgentWorkspace, "client" | "cwd" | "workspaceId">,
+  config: MockAgentConfig,
+): Promise<string> {
+  const agent = await workspace.client.createAgent({
+    provider: "mock",
+    cwd: workspace.cwd,
+    workspaceId: workspace.workspaceId,
+    title: config.title,
+    modeId: config.modeId ?? "load-test",
+    model: config.model ?? "e2e-fast-stream",
+    thinkingOptionId: config.thinkingOptionId,
+    initialPrompt: config.initialPrompt,
+    featureValues: config.featureValues,
+  });
+  return agent.id;
 }
 
 /**
@@ -37,24 +59,13 @@ export async function seedMockAgentWorkspace(
     port: options.port,
   });
   try {
-    const agent = await workspace.client.createAgent({
-      provider: "mock",
-      cwd: workspace.repoPath,
-      workspaceId: workspace.workspaceId,
-      title: options.title,
-      modeId: options.modeId ?? "load-test",
-      model: options.model ?? "e2e-fast-stream",
-      thinkingOptionId: options.thinkingOptionId,
-      initialPrompt: options.initialPrompt,
-      featureValues: options.featureValues,
-    });
-    return {
-      agentId: agent.id,
+    const seeded = {
       workspaceId: workspace.workspaceId,
       cwd: workspace.repoPath,
       client: workspace.client,
       cleanup: workspace.cleanup,
     };
+    return { agentId: await createMockAgent(seeded, options), ...seeded };
   } catch (error) {
     await workspace.cleanup();
     throw error;

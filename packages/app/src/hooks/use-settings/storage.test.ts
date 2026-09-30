@@ -12,7 +12,7 @@ import {
   defaultContentFontSize,
   loadAppSettingsFromStorage,
   loadSettingsFromStorage,
-  parseClampedFontSize,
+  parseClampedInteger,
   parseTerminalScrollbackLines,
   saveAppSettings,
   type SettingsDeps,
@@ -195,6 +195,53 @@ describe("loadAppSettingsFromStorage", () => {
     const result = await loadAppSettingsFromStorage(deps);
 
     expect(result.chatOutlineEnabled).toBe(false);
+  });
+
+  it("starts with the output caret off, and loads it on", async () => {
+    expect((await loadAppSettingsFromStorage(makeDeps())).outputCaretEnabled).toBe(false);
+
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ outputCaretEnabled: true }),
+      }),
+    });
+    expect((await loadAppSettingsFromStorage(deps)).outputCaretEnabled).toBe(true);
+  });
+
+  it("loads a stored output caret that isn't a boolean as off", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ outputCaretEnabled: "yes" }),
+      }),
+    });
+
+    expect((await loadAppSettingsFromStorage(deps)).outputCaretEnabled).toBe(false);
+  });
+
+  it.each([
+    { stored: 12, loaded: 12 },
+    { stored: 0, loaded: 0 },
+    { stored: 50, loaded: 20 },
+    { stored: -3, loaded: 0 },
+    { stored: 7.8, loaded: 7 },
+    { stored: "9", loaded: 9 },
+    { stored: "many", loaded: 5 },
+    { stored: null, loaded: 5 },
+    { stored: undefined, loaded: 5 },
+  ])("loads $stored output caret lines as $loaded", async ({ stored, loaded }) => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({
+          outputCaretLinesAbove: stored,
+          outputCaretLinesBelow: stored,
+        }),
+      }),
+    });
+
+    expect(await loadAppSettingsFromStorage(deps)).toMatchObject({
+      outputCaretLinesAbove: loaded,
+      outputCaretLinesBelow: loaded,
+    });
   });
 
   it("defaults sidebar navigation items to an empty preference list", async () => {
@@ -947,11 +994,11 @@ describe("appearance settings", () => {
   });
 });
 
-describe("parseClampedFontSize", () => {
+describe("parseClampedInteger", () => {
   it("clamps to the bounds and rejects non-numeric strings", () => {
-    expect(parseClampedFontSize(999, { min: 11, max: 24 })).toBe(24);
-    expect(parseClampedFontSize(8, { min: 11, max: 24 })).toBe(11);
-    expect(parseClampedFontSize("15", { min: 11, max: 24 })).toBe(15);
-    expect(parseClampedFontSize("abc", { min: 11, max: 24 })).toBeNull();
+    expect(parseClampedInteger(999, { min: 11, max: 24 })).toBe(24);
+    expect(parseClampedInteger(8, { min: 11, max: 24 })).toBe(11);
+    expect(parseClampedInteger("15", { min: 11, max: 24 })).toBe(15);
+    expect(parseClampedInteger("abc", { min: 11, max: 24 })).toBeNull();
   });
 });

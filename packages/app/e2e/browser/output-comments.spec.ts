@@ -1,6 +1,8 @@
 import { withOutputComments } from "@/output-comments/fence";
 import { expect, test } from "../support/fixtures";
 import { expectNearBottom } from "../support/helpers/agent-bottom-anchor";
+import { gotoAppShell } from "../support/helpers/app";
+import { splitCurrentPanelRight } from "../support/helpers/chat-outline";
 import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
 import {
   cancelAgent,
@@ -11,8 +13,11 @@ import {
   removeAttachmentPill,
   sendDraftToQueue,
 } from "../support/helpers/composer";
+import { installDictationHarness } from "../support/helpers/dictation";
 import { stubListCommands } from "../support/helpers/list-commands";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
+import { openNewWorkspaceComposer } from "../support/helpers/new-workspace";
+import { FIELD_START_KEY, pressTimes } from "../support/helpers/output-caret";
 import {
   assistantMessageText,
   badgeOnTopAt,
@@ -65,9 +70,11 @@ import {
   trayImages,
   typeOverAssistantText,
 } from "../support/helpers/output-comments";
+import { seedWorkspace } from "../support/helpers/seed-client";
 import {
   expectReconnectingToastGone,
   expectReconnectingToastVisible,
+  waitForSidebarHydration,
 } from "../support/helpers/workspace-ui";
 
 // Tall enough that the comment cards don't push the badged lines out of the chat.
@@ -1038,5 +1045,221 @@ test("a failed send keeps the comments pending for the retry", async ({ page }) 
   } finally {
     gate.restore();
     await agent.cleanup();
+  }
+});
+
+test("dictation over selected output fills a comment on it and never sends", async ({ page }) => {
+  const dictation = await installDictationHarness(page, { transcript: "why this file?" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-dictation-",
+    response: RESPONSE,
+  });
+  try {
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await page.getByRole("button", { name: "Start dictation" }).click();
+
+    await expect(focusedNote(page)).toHaveCount(1);
+    await expectNotes(page, [""]);
+    await expect(pendingCards(page)).toHaveAttribute("id", /.+/);
+    const cardId = await pendingCards(page).evaluate((card) => card.id);
+    await dictation.waitForAudio();
+    // Pressing the button blurs the still empty note, which keeps it for the transcript.
+    await page.getByRole("button", { name: "Insert transcription and send" }).click();
+
+    await expectNotes(page, ["why this file?"]);
+    await expect(pendingCards(page)).toHaveAttribute("id", cardId);
+    await expectCommentHighlights(page, [{ text: CONFIG_QUOTE, tint: "active" }]);
+    await expect(focusedNote(page)).toHaveCount(1);
+    await expectComposerDraft(page, "");
+
+    // Pressing the shortcut again confirms and would send; the transcript lands at the caret,
+    // spaced from the word after it.
+    dictation.setTranscript("and");
+    await page.keyboard.press(FIELD_START_KEY);
+    await pressTimes(page, "ArrowRight", "why ".length);
+    await page.getByRole("button", { name: "Start dictation" }).click();
+    await dictation.waitForAudio();
+    await page.keyboard.press("ControlOrMeta+d");
+
+    await expectNotes(page, ["why and this file?"]);
+    await expect(pendingCards(page)).toHaveCount(1);
+    await expectComposerDraft(page, "");
+
+    // Once the agent has answered a message sent now, any send the dictation made went before it.
+    await fillComposerDraft(page, "Now send.");
+    await composerLocator(page).press("Enter");
+    await expect(
+      assistantMessageText(page).filter({ hasText: "Retries stop after three attempts." }),
+    ).toHaveCount(2);
+    await expect.poll(() => dictation.requestCount("send_agent_message_request")).toBe(1);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a dictated comment cancelled or removed goes with its transcript, and without a selection the composer gets it", async ({
+  page,
+}) => {
+  const dictation = await installDictationHarness(page, { transcript: "Explain the retries." });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-dictation-cancel-",
+    response: RESPONSE,
+  });
+  const startDictation = page.getByRole("button", { name: "Start dictation" });
+  const insertTranscript = page.getByRole("button", { name: "Insert transcription", exact: true });
+  try {
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await page.keyboard.press("ControlOrMeta+d");
+    await expect(pendingCards(page)).toHaveCount(1);
+    await dictation.waitForAudio();
+    await page.getByRole("button", { name: "Cancel dictation" }).click();
+    await expect(pendingCards(page)).toHaveCount(0);
+
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await startDictation.click();
+    await expect(pendingCards(page)).toHaveCount(1);
+    await dictation.waitForAudio();
+    await page.getByTestId("output-comment-remove").click();
+    await expect(pendingCards(page)).toHaveCount(0);
+    await insertTranscript.click();
+
+    await expect(startDictation).toBeVisible();
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expectComposerDraft(page, "");
+
+    await leaveFocusedField(page);
+    await startDictation.click();
+    await dictation.waitForAudio();
+    await insertTranscript.click();
+
+    await expectComposerDraft(page, "Explain the retries.");
+    await expect(pendingCards(page)).toHaveCount(0);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a transcript goes to the comment its dictation started on, though focus moved to another note and the selection changed", async ({
+  page,
+}) => {
+  const dictation = await installDictationHarness(page, { transcript: "why this file?" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-dictation-moved-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "three", note: "why three?" });
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await page.getByRole("button", { name: "Start dictation" }).click();
+    await expect(focusedNote(page)).toHaveCount(1);
+    await dictation.waitForAudio();
+
+    await noteInput(pendingCards(page).nth(1)).click();
+    await expect(focusedNote(page)).toHaveValue("why three?");
+    await doubleClickAssistantText(page, "retries");
+    await expect(focusedNote(page)).toHaveCount(0);
+    await expectNotes(page, ["", "why three?"]);
+
+    await page.getByRole("button", { name: "Insert transcription", exact: true }).click();
+
+    await expectNotes(page, ["why this file?", "why three?"]);
+    await expect(focusedNote(page)).toHaveValue("why this file?");
+    await expectCommentHighlights(page, [
+      { text: THREE_QUOTE, tint: "pending" },
+      { text: CONFIG_QUOTE, tint: "active" },
+    ]);
+    await expectComposerDraft(page, "");
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a transcript landing after focus moved to another pane fills its note without taking focus", async ({
+  page,
+}) => {
+  const dictation = await installDictationHarness(page, { transcript: "why this file?" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-dictation-away-",
+    response: RESPONSE,
+  });
+  try {
+    await splitCurrentPanelRight(page);
+    await assistantMessageText(page).first().click();
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await page.getByRole("button", { name: "Start dictation" }).click();
+    await expect(focusedNote(page)).toHaveCount(1);
+    await dictation.waitForAudio();
+    const release = dictation.holdTranscripts();
+    await page.getByRole("button", { name: "Insert transcription", exact: true }).click();
+
+    const otherPaneControl = page.getByTestId("workspace-new-tab-agent").filter({ visible: true });
+    await page.getByTestId("workspace-new-tab-panel").filter({ visible: true }).click();
+    await expect(otherPaneControl).toBeFocused();
+    release();
+
+    await expectNotes(page, ["why this file?"]);
+    await expect(otherPaneControl).toBeFocused();
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a transcript landing while another note is typed in fills its own note and leaves the other focused", async ({
+  page,
+}) => {
+  const dictation = await installDictationHarness(page, { transcript: "why this file?" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-dictation-typing-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "three", note: "why three?" });
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "config" });
+    await page.getByRole("button", { name: "Start dictation" }).click();
+    await expect(focusedNote(page)).toHaveCount(1);
+    await dictation.waitForAudio();
+    const release = dictation.holdTranscripts();
+    await page.getByRole("button", { name: "Insert transcription", exact: true }).click();
+
+    await noteInput(pendingCards(page).nth(1)).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" and");
+    release();
+
+    await expectNotes(page, ["why this file?", "why three? and"]);
+    await page.keyboard.type(" four");
+    await expectNotes(page, ["why this file?", "why three? and four"]);
+    await expect(focusedNote(page)).toHaveValue("why three? and four");
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("pressing the mic takes focus where there is no output to comment on", async ({ page }) => {
+  const seeded = await seedWorkspace({ repoPrefix: "dictation-press-" });
+  await installDictationHarness(page, { transcript: "Keep this spoken prompt" });
+  try {
+    await gotoAppShell(page);
+    await waitForSidebarHydration(page);
+    await openNewWorkspaceComposer(page, {
+      projectKey: seeded.projectKey,
+      projectDisplayName: seeded.projectDisplayName,
+    });
+    await composerLocator(page).click();
+    await expect(composerLocator(page)).toBeFocused();
+
+    const mic = page.getByRole("button", { name: "Start dictation" });
+    await mic.hover();
+    await page.mouse.down();
+    await expect(mic).toBeFocused();
+    await page.mouse.up();
+  } finally {
+    await seeded.cleanup();
   }
 });

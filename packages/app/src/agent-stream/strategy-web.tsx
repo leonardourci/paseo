@@ -42,6 +42,9 @@ import {
   type HistoryStartSettleScheduler,
 } from "./history-start-settle-scheduler";
 import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
+import { isEditingSurface } from "@/output-caret/host";
+import { useOutputCaretRowId } from "@/output-caret/context";
+import { usePinnedRowIndexes } from "./pinned-rows";
 import { getStreamItemMessageId } from "./presentation";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
 
@@ -126,23 +129,8 @@ function isScrollContainerMeasurable(
   return scrollContainer.clientHeight > 0 && scrollContainer.scrollHeight > 0;
 }
 
-function isEditableEventTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-  const editableRoot = target.closest("input, textarea, [contenteditable]");
-  if (!editableRoot) {
-    return false;
-  }
-  const tagName = editableRoot.tagName.toLowerCase();
-  if (tagName === "input" || tagName === "textarea") {
-    return true;
-  }
-  return editableRoot.getAttribute("contenteditable")?.toLowerCase() !== "false";
-}
-
 function isUpwardViewportScrollKey(event: KeyboardEvent): boolean {
-  if (isEditableEventTarget(event.target)) {
+  if (isEditingSurface(event.target)) {
     return false;
   }
   return (
@@ -389,13 +377,20 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     );
     return indexes.length > 0 ? indexes : null;
   }, [chatFindMessageId, segments.historyVirtualized]);
+  // The output caret's row stays mounted too, or scrolling away would take the caret with it.
+  const caretRowId = useOutputCaretRowId();
+  const pinnedRowIndexes = usePinnedRowIndexes({
+    rows: segments.historyVirtualized,
+    chatFindRowIndexes,
+    caretRowId,
+  });
   const rangeExtractor = useCallback(
     (range: VirtualRange) => {
       const visible = defaultRangeExtractor(range);
-      if (!chatFindRowIndexes) return visible;
-      return [...new Set([...visible, ...chatFindRowIndexes])].sort((left, right) => left - right);
+      if (!pinnedRowIndexes) return visible;
+      return [...new Set([...visible, ...pinnedRowIndexes])].sort((left, right) => left - right);
     },
-    [chatFindRowIndexes],
+    [pinnedRowIndexes],
   );
   const rowVirtualizer = useVirtualizer({
     count: segments.historyVirtualized.length,
@@ -1033,7 +1028,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         event.pointerType !== "mouse" ||
         !event.isPrimary ||
         (event.button !== 0 && event.button !== 1) ||
-        isEditableEventTarget(event.target)
+        isEditingSurface(event.target)
       ) {
         return;
       }
@@ -1157,6 +1152,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         scheduleStickToBottom();
       },
       scrollToMessage,
+      stopFollowingOutput: stopFollowingOutputFromUserIntent,
       holdElementPosition: (element) => {
         stopFollowingOutputFromUserIntent();
         const virtualRow = element.closest<HTMLElement>("[data-index][data-history-row-id]");
@@ -1246,6 +1242,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         key={item.id}
         data-history-row-id={item.id}
         data-message-id={getStreamItemMessageId(item)}
+        data-row-kind={item.kind}
         style={streamRowStyle}
       >
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
@@ -1259,6 +1256,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         key={item.id}
         data-history-row-id={item.id}
         data-message-id={getStreamItemMessageId(item)}
+        data-row-kind={item.kind}
         style={streamRowStyle}
       >
         {renderLiveHeadRow(item, index, segments.liveHead)}
@@ -1314,6 +1312,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
                     data-index={virtualRow.index}
                     data-history-row-id={item.id}
                     data-message-id={getStreamItemMessageId(item)}
+                    data-row-kind={item.kind}
                     ref={measureVirtualizedRowElement}
                     style={renderVirtualRowStyle(virtualRow.start)}
                   >

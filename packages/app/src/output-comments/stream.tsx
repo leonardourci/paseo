@@ -14,6 +14,7 @@ import invariant from "tiny-invariant";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { markdownCopyDataSet } from "@/assistant-selection-copy/markup";
+import { OutputCaretLayer } from "@/output-caret/layer";
 import {
   MarkdownSlotContext,
   type MarkdownSlot,
@@ -325,7 +326,7 @@ export function OutputCommentsLayer({
   );
   return (
     <StreamCommentsContext.Provider value={comments}>
-      {children}
+      <OutputCaretLayer viewportRef={viewportRef}>{children}</OutputCaretLayer>
       <OutputCommentHighlights
         surfaceId={surfaceId}
         pending={pending}

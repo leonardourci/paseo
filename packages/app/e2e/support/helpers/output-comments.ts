@@ -255,6 +255,14 @@ export async function selectAssistantText(
   );
 }
 
+/** Clicks into the middle of `text` in the reply. */
+export async function clickAssistantText(page: Page, text: string): Promise<void> {
+  const centre = await selectAssistantText(page, { text });
+  // A click inside a selection would start a drag of it rather than place the caret.
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await page.mouse.click(centre.x, centre.y);
+}
+
 export async function doubleClickAssistantText(page: Page, text: string): Promise<void> {
   const centre = await selectAssistantText(page, { text });
   await page.mouse.dblclick(centre.x, centre.y);

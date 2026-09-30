@@ -2073,6 +2073,21 @@ export const zhCN: TranslationResources = {
           zhCN: "简体中文",
         },
       },
+      outputCaret: {
+        title: "输出中的键盘光标",
+        description: "用方向键在 Agent 输出中移动，用于选择、评论和引用",
+        sectionTitle: "键盘光标",
+        linesDisabledHint: "开启“输出中的键盘光标”后即可修改这些设置",
+        shortcutHint: "在消息输入框中按 {{shortcut}} 可跳到最新回复的开头，再按一次即可返回",
+        linesAbove: {
+          label: "光标上方保留的行数",
+          description: "聊天会滚动，使光标上方始终显示这么多行",
+        },
+        linesBelow: {
+          label: "光标下方保留的行数",
+          description: "聊天会滚动，使光标下方始终显示这么多行",
+        },
+      },
     },
     diagnostics: {
       title: "诊断",

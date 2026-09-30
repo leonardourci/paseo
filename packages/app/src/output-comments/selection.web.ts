@@ -9,7 +9,7 @@ import type { QuoteAnchor } from "./fence";
 import { blockHolds, quotePieces } from "./match";
 import type { MessageBlocks, MessageBlocksOf } from "./types";
 
-const ROW = "[data-history-row-id]";
+export const ROW = "[data-history-row-id]";
 const ASSISTANT_MESSAGE = '[data-testid="assistant-message"]';
 const CODE = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="pre"], [${MARKDOWN_COPY_TAG_ATTRIBUTE}="code"]`;
 const LIST_ITEM = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="li"]`;
@@ -43,7 +43,7 @@ interface SelectionEnd {
   range: Range;
 }
 
-function rowOf(node: Node): HTMLElement | null {
+export function rowOf(node: Node): HTMLElement | null {
   const element = node instanceof Element ? node : node.parentElement;
   return element?.closest<HTMLElement>(ROW) ?? null;
 }

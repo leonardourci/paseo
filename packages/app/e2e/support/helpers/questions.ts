@@ -68,6 +68,21 @@ export async function fillQuestionAnswer(
     .fill(input.answer);
 }
 
+/** Answers as a person does: a click into the field, then keys, which `fill` would skip. */
+export async function typeQuestionAnswer(
+  page: Page,
+  input: { question: string; answer: string },
+): Promise<void> {
+  const field = page
+    .getByTestId("question-form-card")
+    .first()
+    .getByRole("textbox", { name: input.question });
+  await field.click();
+  await page.keyboard.type(input.answer);
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue(input.answer);
+}
+
 export async function submitQuestionAnswers(page: Page): Promise<void> {
   await page.getByTestId("question-form-primary-action").click();
   await expect(page.getByTestId("question-form-card")).toHaveCount(0, { timeout: 30_000 });

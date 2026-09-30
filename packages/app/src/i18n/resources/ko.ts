@@ -2108,6 +2108,22 @@ export const ko: TranslationResources = {
           zhCN: "简体中文",
         },
       },
+      outputCaret: {
+        title: "출력 내 키보드 캐럿",
+        description: "화살표 키로 에이전트 출력을 이동하며 선택, 댓글, 인용할 수 있습니다",
+        sectionTitle: "키보드 캐럿",
+        linesDisabledHint: "이 값을 바꾸려면 출력 내 키보드 캐럿을 켜세요",
+        shortcutHint:
+          "메시지 입력창에서 {{shortcut}} 키를 누르면 최신 답변의 처음으로 이동하고, 한 번 더 누르면 돌아옵니다",
+        linesAbove: {
+          label: "캐럿 위에 유지할 줄 수",
+          description: "캐럿 위로 이만큼의 줄이 보이도록 채팅을 스크롤합니다",
+        },
+        linesBelow: {
+          label: "캐럿 아래에 유지할 줄 수",
+          description: "캐럿 아래로 이만큼의 줄이 보이도록 채팅을 스크롤합니다",
+        },
+      },
     },
     diagnostics: {
       title: "진단",

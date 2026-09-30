@@ -32,7 +32,7 @@ import { COMPOSER_PILL_CLEARANCE, composerPillStyles } from "./pill-styles";
  */
 export function ComposerTrackBar({ children }: { children: ReactNode }): ReactElement {
   return (
-    <View style={styles.bar} pointerEvents="box-none">
+    <View style={styles.bar} pointerEvents="box-none" testID="composer-track-bar">
       <View style={styles.track} pointerEvents="box-none">
         {children}
       </View>

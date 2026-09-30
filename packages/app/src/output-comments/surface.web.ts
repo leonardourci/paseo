@@ -7,6 +7,7 @@ export const SURFACE_LAYER: CSSProperties = {
   pointerEvents: "none",
 };
 
+export const CONTROL = 'button, a[href], [role="button"], [role="link"]';
 export const PENDING_CARD = '[data-testid="output-comment-pending"]';
 
 /** The nearest ancestor holding a chat, so lookups stay in this pane when another shows it too. */
