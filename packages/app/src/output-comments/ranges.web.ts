@@ -1,16 +1,19 @@
-import { findMessageRows, findRenderedMatches } from "@/agent-stream/chat-find/ranges.web";
+import { findRenderedMatches } from "@/agent-stream/chat-find/ranges.web";
 import type { QuoteAnchor } from "./fence";
-import { quotePieces } from "./match";
-import { blockIndexOfRow } from "./selection.web";
+import { messageRowsByBlock, quotePiecesInRows } from "./selection.web";
+import type { MessageBlocks } from "./types";
 
-export function rangesForQuote(root: HTMLElement, anchor: QuoteAnchor): Range[] {
-  const rowsByBlock = new Map<number, HTMLElement>();
-  for (const row of findMessageRows(root, anchor.sourceItemId)) {
-    const block = blockIndexOfRow(row);
-    if (block !== null) rowsByBlock.set(block, row);
-  }
+interface QuoteRangesInput {
+  root: HTMLElement;
+  anchor: QuoteAnchor;
+  blocks: MessageBlocks;
+}
+
+export function rangesForQuote({ root, anchor, blocks }: QuoteRangesInput): Range[] {
+  const rowsByBlock = messageRowsByBlock(root, anchor.sourceItemId);
   const ranges: Range[] = [];
-  for (const [offset, piece] of quotePieces(anchor).entries()) {
+  const pieces = quotePiecesInRows({ rows: rowsByBlock, anchor, blocks });
+  for (const [offset, piece] of pieces.entries()) {
     const row = rowsByBlock.get(anchor.startBlock + offset);
     if (!row) continue;
     const matches = findRenderedMatches(row, piece, { mode: "quote" });

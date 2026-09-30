@@ -91,6 +91,7 @@ function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
 export function OutputCommentSelectionLayer({
   draftKey,
   composer,
+  blocksOf,
 }: OutputCommentSelectionLayerProps) {
   const { t } = useTranslation();
   const { isInteractive } = usePaneFocus();
@@ -110,8 +111,10 @@ export function OutputCommentSelectionLayer({
 
   const readSelection = useCallback((): CommentableSelection | null => {
     const root = surfaceRoot();
-    return root ? readCommentableSelection(window.getSelection(), root) : null;
-  }, [surfaceRoot]);
+    return root
+      ? readCommentableSelection({ selection: window.getSelection(), root, blocksOf })
+      : null;
+  }, [blocksOf, surfaceRoot]);
 
   const clear = useCallback(() => {
     isShownRef.current = false;

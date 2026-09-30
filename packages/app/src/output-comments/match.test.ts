@@ -4,8 +4,10 @@ import { withOutputComments, type OutputComment, type QuoteAnchor } from "./fenc
 import {
   findMovedCommentSource,
   listItemPaths,
+  quoteEndNode,
   quotePlainText,
   quoteSnippet,
+  readTopLevelNodes,
   resolveDeliveredOutputComments,
 } from "./match";
 
@@ -38,9 +40,12 @@ function locate(messageText: string, comment: TurnComment) {
 const THREE_BLOCKS = "First paragraph.\n\nSecond has the phrase.\n\nThird has the phrase.";
 
 describe("quoteSnippet", () => {
+  const ONE_ROW = { startBlock: 0, endBlock: 0 };
+
   it("splits the paragraph around a quote found mid-way", () => {
     expect(
       quoteSnippet("The **cache** is\nwarm and ready.", {
+        ...ONE_ROW,
         quote: "is warm",
         occurrence: 0,
         isCode: false,
@@ -62,6 +67,7 @@ describe("quoteSnippet", () => {
   ])("$name", ({ lead, before }) => {
     expect(
       quoteSnippet(`${"a".repeat(lead)} target rest`, {
+        ...ONE_ROW,
         quote: "target",
         occurrence: 0,
         isCode: false,
@@ -78,7 +84,9 @@ describe("quoteSnippet", () => {
     { name: "clips a quote of 81 characters and drops what follows it", length: 81, clipped: true },
   ])("$name", ({ length, clipped }) => {
     const quote = "q".repeat(length);
-    expect(quoteSnippet(`Lead ${quote} tail.`, { quote, occurrence: 0, isCode: false })).toEqual({
+    expect(
+      quoteSnippet(`Lead ${quote} tail.`, { ...ONE_ROW, quote, occurrence: 0, isCode: false }),
+    ).toEqual({
       before: "",
       match: clipped ? `${"q".repeat(80)}…` : quote,
       after: clipped ? "" : " tail.",
@@ -87,7 +95,9 @@ describe("quoteSnippet", () => {
 
   it("starts a quote that fills the line at the quote, clipped, with no context", () => {
     const quote = "word ".repeat(30).trim();
-    expect(quoteSnippet(`Start ${quote} end.`, { quote, occurrence: 0, isCode: false })).toEqual({
+    expect(
+      quoteSnippet(`Start ${quote} end.`, { ...ONE_ROW, quote, occurrence: 0, isCode: false }),
+    ).toEqual({
       before: "",
       match: `${"word ".repeat(16).trim()}…`,
       after: "",
@@ -98,6 +108,7 @@ describe("quoteSnippet", () => {
     const quote = "b".repeat(70);
     expect(
       quoteSnippet(`Some leading context here ${quote} tail.`, {
+        ...ONE_ROW,
         quote,
         occurrence: 0,
         isCode: false,
@@ -112,6 +123,8 @@ describe("quoteSnippet", () => {
   it("finds a quote spanning blocks by its piece in this block", () => {
     expect(
       quoteSnippet("Second block here.", {
+        ...ONE_ROW,
+        endBlock: 1,
         quote: "end of first.\n\nSecond block",
         occurrence: 0,
         isCode: false,
@@ -131,7 +144,7 @@ describe("quoteSnippet", () => {
     "tints repeat $occurrence of $quote, matching case exactly",
     ({ quote, occurrence, before, after }) => {
       const heading = "## Merge on the same quote, merge again";
-      expect(quoteSnippet(heading, { quote, occurrence, isCode: false })).toEqual({
+      expect(quoteSnippet(heading, { ...ONE_ROW, quote, occurrence, isCode: false })).toEqual({
         before,
         match: quote,
         after,
@@ -139,9 +152,22 @@ describe("quoteSnippet", () => {
     },
   );
 
+  it("shows a quote across rows by this block's piece, not by where its first row's text repeats", () => {
+    expect(
+      quoteSnippet("End two. Intro. more", {
+        quote: "Intro.\n\n- one\n\nEnd two.",
+        occurrence: 0,
+        isCode: false,
+        startBlock: 0,
+        endBlock: 1,
+      }),
+    ).toEqual({ before: "", match: "End two.", after: " Intro. more" });
+  });
+
   it("finds a quote that runs across list items", () => {
     expect(
       quoteSnippet("- Tokenize the source\n- Build the tree", {
+        ...ONE_ROW,
         quote: "the source\n- Build",
         occurrence: 0,
         isCode: false,
@@ -151,19 +177,30 @@ describe("quoteSnippet", () => {
 
   it("tints the first repeat when the one the comment was made on is gone", () => {
     expect(
-      quoteSnippet("Merge on the same quote", { quote: "m", occurrence: 5, isCode: false }),
+      quoteSnippet("Merge on the same quote", {
+        ...ONE_ROW,
+        quote: "m",
+        occurrence: 5,
+        isCode: false,
+      }),
     ).toEqual({ before: "Merge on the sa", match: "m", after: "e quote" });
   });
 
   it("counts repeats that overlap, as a selection does", () => {
     expect(
-      quoteSnippet("very very very", { quote: "very very", occurrence: 1, isCode: false }),
+      quoteSnippet("very very very", {
+        ...ONE_ROW,
+        quote: "very very",
+        occurrence: 1,
+        isCode: false,
+      }),
     ).toEqual({ before: "very ", match: "very very", after: "" });
   });
 
   it("finds a code quote in its code block", () => {
     expect(
       quoteSnippet("```sh\n# build\nnpm run build\n```", {
+        ...ONE_ROW,
         quote: "# build\nnpm",
         occurrence: 0,
         isCode: true,
@@ -173,7 +210,12 @@ describe("quoteSnippet", () => {
 
   it("falls back to the quote alone when the block lacks it", () => {
     expect(
-      quoteSnippet("Something else.", { quote: "`absent` text", occurrence: 0, isCode: false }),
+      quoteSnippet("Something else.", {
+        ...ONE_ROW,
+        quote: "`absent` text",
+        occurrence: 0,
+        isCode: false,
+      }),
     ).toEqual({
       before: "",
       match: "absent text",
@@ -436,6 +478,93 @@ describe("listItemPaths", () => {
     { name: "numbers no item inside a blockquote", block: "- one\n\n> - quoted", paths: ["0"] },
     { name: "finds no items in a block without a list", block: "Just a paragraph.", paths: [] },
   ])("$name", ({ block, paths }) => {
-    expect([...listItemPaths(block)]).toEqual(paths);
+    expect([...listItemPaths(block).keys()]).toEqual(paths);
+  });
+});
+
+describe("quoteEndNode", () => {
+  const anchor = { occurrence: 0, isCode: false, startBlock: 0, endBlock: 0 };
+  it.each([
+    {
+      name: "finds a paragraph a list follows with no blank line",
+      block: "The parser is ready, in draft.\n- one\n- two",
+      quote: "ready, in draft.",
+      node: 0,
+    },
+    {
+      name: "finds a heading a paragraph follows",
+      block: "# The parser\nIt reads the config.",
+      quote: "parser",
+      node: 0,
+    },
+    {
+      name: "finds a paragraph a code fence follows",
+      block: "Run this:\n```sh\nnpm test\n```",
+      quote: "Run this:",
+      node: 0,
+    },
+    {
+      name: "finds code a paragraph follows",
+      block: "```sh\nnpm test\n```\nThen check.",
+      quote: "npm test",
+      isCode: true,
+      node: 0,
+    },
+    {
+      name: "finds the node holding the occurrence",
+      block: "# Retry\nRetry now.\n- Retry later",
+      quote: "Retry",
+      occurrence: 1,
+      node: 1,
+    },
+    {
+      name: "finds the node holding the end of a quote across two nodes",
+      block: "Ready.\n- one\n- two\n# Next",
+      quote: "Ready.\n- one",
+      node: 1,
+    },
+    {
+      name: "reads the end block's piece of a quote across blocks",
+      block: "Ready.\n- one\n- two\n# Next",
+      quote: "Intro.\n\nReady.\n- one",
+      startBlock: 0,
+      endBlock: 1,
+      node: 1,
+    },
+    {
+      name: "finds the end of a quote that copying broke into blocks within one",
+      block: "# The parser\nIt reads the config.\n- one",
+      quote: "parser\n\nIt reads",
+      node: 1,
+    },
+    {
+      name: "reads every block of the end block's piece of a quote across blocks",
+      block: "Ready.\n- one\n- two\n# Next",
+      quote: "Intro.\n\nReady.\n\n- one",
+      startBlock: 0,
+      endBlock: 1,
+      node: 1,
+    },
+    {
+      name: "leaves a quote ending in the last node to the block",
+      block: "# Retry\nRetry now.\n- Retry later",
+      quote: "Retry",
+      occurrence: 2,
+      node: null,
+    },
+    {
+      name: "leaves a block of one node as it is",
+      block: "Just a paragraph\nthat wraps.",
+      quote: "Just a",
+      node: null,
+    },
+    {
+      name: "places nothing when the block no longer holds the quote",
+      block: "# Retry\nRetry now.",
+      quote: "Gone",
+      node: null,
+    },
+  ])("$name", ({ block, node, ...quote }) => {
+    expect(quoteEndNode(readTopLevelNodes(block), { ...anchor, ...quote })).toBe(node);
   });
 });

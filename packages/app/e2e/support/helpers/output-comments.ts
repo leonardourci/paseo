@@ -108,7 +108,10 @@ export async function openAnsweredAgent(
   }
 }
 
-/** The reply's text, one element per Markdown block. Cards on a list item render inside it. */
+/**
+ * The reply's text, one element per Markdown block. A card on a list item, or on a node that another
+ * node follows, renders inside it.
+ */
 export function assistantMessageText(page: Page): Locator {
   return page.getByTestId("assistant-message");
 }

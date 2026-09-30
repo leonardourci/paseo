@@ -15,10 +15,12 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { markdownCopyDataSet } from "@/assistant-selection-copy/markup";
 import {
-  ListItemSlotContext,
-  type RenderAfterListItem,
-} from "@/components/markdown/list-item-slot";
+  MarkdownSlotContext,
+  type MarkdownSlot,
+  type RenderMarkdownSlot,
+} from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useStableEvent } from "@/hooks/use-stable-event";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
 import type { AssistantMessageItem, StreamItem } from "@/types/stream";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
@@ -26,14 +28,19 @@ import { DeliveredOutputCommentCard } from "./card";
 import { useOutputCommentsComposer } from "./composer-context";
 import { useDeliveredTurns } from "./delivered";
 import { OutputCommentHighlights } from "./highlights";
+import type { QuoteAnchor } from "./fence";
 import {
   findMovedCommentSource,
   listItemPaths,
+  quoteEndNode,
+  readTopLevelNodes,
   type DeliveredOutputComment,
   type DeliveredOutputComments,
+  type TopLevelNodes,
 } from "./match";
 import { PendingOutputCommentCard } from "./pending-card";
 import { OutputCommentSelectionLayer } from "./selection-layer";
+import type { MessageBlocks, MessageBlocksOf } from "./types";
 import {
   EMPTY_PENDING_COMMENTS,
   loadedComments,
@@ -69,10 +76,20 @@ interface CardGroup {
   delivered: DeliveredOutputComment[];
 }
 
+interface SlotCards extends CardGroup {
+  /** The top-level node the slot is after, or holds its list item. */
+  node: number;
+}
+
+interface PlacedSlot {
+  slot: InnerSlot;
+  node: number;
+}
+
 interface BlockCards {
   afterBlock: CardGroup;
-  /** Keyed by the item's path, dot-joined as in the fence. */
-  afterItems: Map<string, CardGroup>;
+  /** Keyed by `slotKey`. */
+  afterSlots: Map<string, SlotCards>;
 }
 
 interface BlockCardsInput {
@@ -83,6 +100,12 @@ interface BlockCardsInput {
 
 interface OutputCommentCardsProps {
   cards: CardGroup;
+  blockText: string;
+}
+
+interface SentCommentQuote {
+  comment: DeliveredOutputComment;
+  /** The output block its inline card follows. */
   blockText: string;
 }
 
@@ -97,7 +120,10 @@ interface StreamComments {
   /** The items the delivered comments were resolved in. */
   commentTurns: readonly StreamItem[];
   viewportRef: RefObject<StreamViewportHandle | null>;
+  blocksOf: MessageBlocksOf;
 }
+
+type InnerSlot = Exclude<MarkdownSlot, { rest: number }>;
 
 const EMPTY_ROW_PENDING: readonly NumberedPendingComment[] = [];
 const EMPTY_ROW_DELIVERED: readonly DeliveredOutputComment[] = [];
@@ -118,27 +144,57 @@ function itemKey(path: readonly number[]): string {
   return path.join(".");
 }
 
+function slotKey(slot: InnerSlot): string {
+  return "item" in slot ? `item:${itemKey(slot.item)}` : `node:${slot.node}`;
+}
+
 function emptyGroup(): CardGroup {
   return { pending: [], delivered: [] };
 }
 
-/** A card goes after the list item its quote ends in, else after the block. */
+/**
+ * A card goes after the list item its quote ends in, else after the top-level node it ends in,
+ * else after the block.
+ */
 function placeCards({ pending, delivered, blockText }: BlockCardsInput): BlockCards {
-  const cards: BlockCards = { afterBlock: emptyGroup(), afterItems: new Map() };
-  let itemPaths: ReadonlySet<string> | null = null;
-  function groupFor(endItem: readonly number[] | undefined): CardGroup {
-    if (endItem === undefined) return cards.afterBlock;
-    const key = itemKey(endItem);
-    itemPaths ??= listItemPaths(blockText);
-    // A card after an item the block doesn't have would never render.
-    if (!itemPaths.has(key)) return cards.afterBlock;
-    const group = cards.afterItems.get(key) ?? emptyGroup();
-    cards.afterItems.set(key, group);
+  const cards: BlockCards = { afterBlock: emptyGroup(), afterSlots: new Map() };
+  let itemNodes: ReadonlyMap<string, number> | null = null;
+  let nodes: TopLevelNodes | null = null;
+  function slotFor(anchor: QuoteAnchor): PlacedSlot | null {
+    if (anchor.endItem !== undefined) {
+      itemNodes ??= listItemPaths(blockText);
+      const itemNode = itemNodes.get(itemKey(anchor.endItem));
+      // A card after an item the block doesn't have would never render.
+      if (itemNode !== undefined) return { slot: { item: anchor.endItem }, node: itemNode };
+    }
+    nodes ??= readTopLevelNodes(blockText);
+    const node = quoteEndNode(nodes, anchor);
+    return node === null ? null : { slot: { node }, node };
+  }
+  function groupFor(anchor: QuoteAnchor): CardGroup {
+    const placed = slotFor(anchor);
+    if (!placed) return cards.afterBlock;
+    const key = slotKey(placed.slot);
+    const group = cards.afterSlots.get(key) ?? { ...emptyGroup(), node: placed.node };
+    cards.afterSlots.set(key, group);
     return group;
   }
-  for (const entry of pending) groupFor(entry.comment.endItem).pending.push(entry);
-  for (const comment of delivered) groupFor(comment.endItem).delivered.push(comment);
+  for (const entry of pending) groupFor(entry.comment).pending.push(entry);
+  for (const comment of delivered) groupFor(comment).delivered.push(comment);
   return cards;
+}
+
+/**
+ * The cards at `slot`. At `rest`, those on every node the body didn't render: a message past the
+ * render cap, or still being revealed. An item in a list cut short within a rendered node has none.
+ */
+function cardsAt(slots: ReadonlyMap<string, SlotCards>, slot: MarkdownSlot): CardGroup | null {
+  if (!("rest" in slot)) return slots.get(slotKey(slot)) ?? null;
+  const groups = [...slots.values()].filter((group) => group.node >= slot.rest);
+  if (groups.length === 0) return null;
+  const pending = groups.flatMap((group) => group.pending);
+  const delivered = groups.flatMap((group) => group.delivered);
+  return { pending, delivered };
 }
 
 function isSameComments(
@@ -153,6 +209,16 @@ function isSameComments(
 
 function isAssistantMessage(item: StreamItem): item is AssistantMessageItem {
   return item.kind === "assistant_message";
+}
+
+const messageBlocks = new WeakMap<AssistantMessageItem, MessageBlocks>();
+
+function blocksOfMessage(item: AssistantMessageItem): MessageBlocks {
+  const cached = messageBlocks.get(item);
+  if (cached) return cached;
+  const blocks = splitMarkdownBlocks(item.text);
+  messageBlocks.set(item, blocks);
+  return blocks;
 }
 
 /**
@@ -228,6 +294,11 @@ export function OutputCommentsLayer({
     moveReloadedSources(draftKey, assistants);
   }, [canPublish, draftKey, items, setLoaded]);
   const { items: commentTurns, delivered } = useDeliveredTurns(items);
+  // Stable: the highlights would otherwise repaint on every streamed chunk.
+  const blocksOf = useStableEvent((sourceItemId: string): MessageBlocks => {
+    const source = items.find((item) => item.id === sourceItemId);
+    return source?.kind === "assistant_message" ? blocksOfMessage(source) : [];
+  });
   const comments = useMemo(
     (): StreamComments => ({
       draftKey,
@@ -238,14 +309,32 @@ export function OutputCommentsLayer({
       delivered,
       commentTurns,
       viewportRef,
+      blocksOf,
     }),
-    [agentId, commentTurns, delivered, draftKey, pendingByRow, serverId, surfaceId, viewportRef],
+    [
+      agentId,
+      blocksOf,
+      commentTurns,
+      delivered,
+      draftKey,
+      pendingByRow,
+      serverId,
+      surfaceId,
+      viewportRef,
+    ],
   );
   return (
     <StreamCommentsContext.Provider value={comments}>
       {children}
-      <OutputCommentHighlights surfaceId={surfaceId} pending={pending} delivered={delivered} />
-      {composer ? <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} /> : null}
+      <OutputCommentHighlights
+        surfaceId={surfaceId}
+        pending={pending}
+        delivered={delivered}
+        blocksOf={blocksOf}
+      />
+      {composer ? (
+        <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} blocksOf={blocksOf} />
+      ) : null}
     </StreamCommentsContext.Provider>
   );
 }
@@ -254,11 +343,8 @@ export function useStreamViewportRef(): RefObject<StreamViewportHandle | null> {
   return useStreamComments().viewportRef;
 }
 
-/**
- * The text of the output block a sent comment's inline card follows, or null while that output
- * isn't loaded or no longer holds the quote.
- */
-export function useSentCommentBlockText(key: string): string | null {
+/** A sent comment as found in the output, or null while that output isn't loaded or lacks it. */
+export function useSentCommentQuote(key: string): SentCommentQuote | null {
   const { delivered, commentTurns } = useStreamComments();
   return useMemo(() => {
     for (const comments of delivered.values()) {
@@ -266,13 +352,17 @@ export function useSentCommentBlockText(key: string): string | null {
       if (!comment) continue;
       const source = commentTurns.find((item) => item.id === comment.sourceItemId);
       if (source?.kind !== "assistant_message") return null;
-      return splitMarkdownBlocks(source.text)[comment.endBlock] ?? null;
+      const blockText = splitMarkdownBlocks(source.text)[comment.endBlock];
+      return blockText === undefined ? null : { comment, blockText };
     }
     return null;
   }, [commentTurns, delivered, key]);
 }
 
-/** Wraps the block's output so its cards can follow list items, and puts the rest after it. */
+/**
+ * Wraps the block's output so a card can follow the node or list item its quote ends in, and puts
+ * the rest after it.
+ */
 export function OutputCommentsBlock({
   sourceItemId,
   blockIndex,
@@ -286,26 +376,24 @@ export function OutputCommentsBlock({
     const deliveredHere = sourceDelivered.filter((comment) => comment.endBlock === blockIndex);
     return placeCards({ pending: rowPending, delivered: deliveredHere, blockText });
   }, [blockIndex, blockText, rowPending, sourceDelivered]);
-  // Null unless a card follows an item, so every other block keeps its Markdown rules.
-  const renderAfterListItem = useMemo((): RenderAfterListItem | null => {
-    if (cards.afterItems.size === 0) return null;
-    return (path) => {
-      const group = cards.afterItems.get(itemKey(path));
+  // Null unless a card goes inside the block, so every other block keeps its Markdown rules.
+  const renderSlot = useMemo((): RenderMarkdownSlot | null => {
+    if (cards.afterSlots.size === 0) return null;
+    return (slot) => {
+      const group = cardsAt(cards.afterSlots, slot);
       return group ? <OutputCommentCards cards={group} blockText={blockText} /> : null;
     };
   }, [blockText, cards]);
   return (
     <>
-      <ListItemSlotContext.Provider value={renderAfterListItem}>
-        {children}
-      </ListItemSlotContext.Provider>
+      <MarkdownSlotContext.Provider value={renderSlot}>{children}</MarkdownSlotContext.Provider>
       <OutputCommentCards cards={cards.afterBlock} blockText={blockText} />
     </>
   );
 }
 
 function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
-  const { draftKey, serverId, agentId, surfaceId } = useStreamComments();
+  const { draftKey, serverId, agentId, surfaceId, blocksOf } = useStreamComments();
   const composer = useOutputCommentsComposer();
   const hasPending = composer !== null && cards.pending.length > 0;
   if (!hasPending && cards.delivered.length === 0) return null;
@@ -322,6 +410,7 @@ function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
           surfaceId={surfaceId}
           comment={comment}
           blockText={blockText}
+          blocksOf={blocksOf}
         />
       ))}
       {composer
@@ -334,6 +423,7 @@ function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
               comment={comment}
               number={number}
               blockText={blockText}
+              blocksOf={blocksOf}
               composer={composer}
             />
           ))

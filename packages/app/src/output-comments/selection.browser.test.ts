@@ -1,11 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { rangesForQuote } from "./ranges.web";
 import { readCommentableSelection } from "./selection.web";
-import { mountMessage, mountTranscript, paragraph } from "./test-transcript";
+import {
+  inlineCode,
+  mountMessage,
+  mountTranscript,
+  paragraph,
+  renderedList,
+} from "./test-transcript";
 
 afterEach(() => {
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
+
+function noBlocks(): readonly string[] {
+  return [];
+}
 
 function mountHeading(html: string): { root: HTMLElement; heading: HTMLElement } {
   const root = mountMessage(`<div data-paseo-markdown-tag="h2">${html}</div>`);
@@ -17,6 +28,14 @@ function mountHeading(html: string): { root: HTMLElement; heading: HTMLElement }
 function textOf(node: Node | null | undefined): Text {
   if (!(node instanceof Text)) throw new Error("Expected a text node");
   return node;
+}
+
+function textReading(root: HTMLElement, data: string): Text {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof Text && node.data === data) return node;
+  }
+  throw new Error(`Expected a text node reading "${data}"`);
 }
 
 function select(start: [Node, number], end: [Node, number]): Selection {
@@ -33,12 +52,24 @@ describe("readCommentableSelection occurrence", () => {
     const { root, heading } = mountHeading(HEADING);
     const text = textOf(heading.firstChild);
     const same = HEADING.indexOf("same") + 2;
-    expect(readCommentableSelection(select([text, same], [text, same + 1]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([text, same], [text, same + 1]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       quote: "m",
       occurrence: 0,
     });
     const merge = HEADING.lastIndexOf("merge");
-    expect(readCommentableSelection(select([text, merge], [text, merge + 1]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([text, merge], [text, merge + 1]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       quote: "m",
       occurrence: 1,
     });
@@ -47,7 +78,13 @@ describe("readCommentableSelection occurrence", () => {
   it("counts a repeat that overlaps the one before it", () => {
     const { root, heading } = mountHeading("very very very");
     const text = textOf(heading.firstChild);
-    expect(readCommentableSelection(select([text, 5], [text, 14]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([text, 5], [text, 14]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       quote: "very very",
       occurrence: 1,
     });
@@ -61,7 +98,9 @@ describe("readCommentableSelection occurrence", () => {
     const before = textOf(second?.previousSibling);
     const bold = textOf(second?.firstChild);
     const selection = select([before, before.length], [bold, 4]);
-    expect(readCommentableSelection(selection, root)).toMatchObject({ occurrence: 1 });
+    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject({
+      occurrence: 1,
+    });
   });
 });
 
@@ -76,10 +115,42 @@ describe("readCommentableSelection across rows", () => {
     const root = mountMessage(paragraph("alpha beta"), paragraph("gamma"));
     const [first, next] = paragraphTexts(root);
     if (!first || !next) throw new Error("Expected two paragraphs");
-    expect(readCommentableSelection(select([first, 0], [next, 0]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([first, 0], [next, 0]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       startBlock: 0,
       endBlock: 0,
       quote: "alpha beta",
+    });
+  });
+
+  it("groups a quote's pieces by the Markdown of a row that isn't rendered", () => {
+    const root = mountMessage(
+      ["alpha", "alpha", "beta", "gamma"].map(paragraph).join(""),
+      paragraph("unrendered"),
+      paragraph("delta"),
+    );
+    // A copy across rows reads them from the chat they are in.
+    root.dataset.testid = "agent-chat-scroll";
+    root.querySelector('[data-history-row-id="m1:block:1"]')?.remove();
+    const [, second, , , delta] = paragraphTexts(root);
+    if (!second || !delta) throw new Error("Expected the rendered paragraphs");
+    const selection = select([second, 0], [delta, 5]);
+    // Block 1 holds "beta gamma", leaving the first row only "alpha": its second one.
+    const blocks = ["alpha", "Then beta gamma.", "delta"];
+    expect(readCommentableSelection({ selection, root, blocksOf: () => blocks })).toMatchObject({
+      quote: "alpha\n\nbeta\n\ngamma\n\ndelta",
+      startBlock: 0,
+      endBlock: 2,
+      occurrence: 1,
+    });
+    // Without it the first row keeps "alpha beta", which only the second "alpha" starts.
+    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject({
+      occurrence: 0,
     });
   });
 
@@ -87,7 +158,13 @@ describe("readCommentableSelection across rows", () => {
     const root = mountTranscript(["m1", paragraph("alpha beta")], ["m2", paragraph("gamma")]);
     const [first, other] = paragraphTexts(root);
     if (!first || !other) throw new Error("Expected two paragraphs");
-    expect(readCommentableSelection(select([first, 0], [other, 2]), root)).toBeNull();
+    expect(
+      readCommentableSelection({
+        selection: select([first, 0], [other, 2]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -97,7 +174,13 @@ describe("readCommentableSelection in code", () => {
       '<div data-paseo-markdown-tag="pre"><span data-paseo-markdown-tag="code">x = 1\n# comment\ny = 2</span></div>',
     );
     const code = textOf(root.querySelector('[data-paseo-markdown-tag="code"]')?.firstChild);
-    expect(readCommentableSelection(select([code, 0], [code, 15]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([code, 0], [code, 15]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       quote: "x = 1\n# comment",
       isCode: true,
     });
@@ -168,7 +251,7 @@ describe("readCommentableSelection list item", () => {
       [textOfParagraph(root, start[0]), start[1]],
       [textOfParagraph(root, end[0]), end[1]],
     );
-    expect(readCommentableSelection(selection, root)).toMatchObject(read);
+    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject(read);
   });
 
   it.each([
@@ -186,9 +269,40 @@ describe("readCommentableSelection list item", () => {
   ])("records no item when the selection ends in %s", (_, html, textSelector) => {
     const root = mountMessage(html);
     const text = textOf(root.querySelector(textSelector)?.firstChild);
-    expect(readCommentableSelection(select([text, 0], [text, 5]), root)).toMatchObject({
+    expect(
+      readCommentableSelection({
+        selection: select([text, 0], [text, 5]),
+        root,
+        blocksOf: noBlocks,
+      }),
+    ).toMatchObject({
       quote: "plain",
       endItem: undefined,
     });
+  });
+});
+
+describe("readCommentableSelection across ordered list items", () => {
+  it("quotes from inside one item into the next, and the quote paints all of it", () => {
+    const root = mountMessage(
+      renderedList(
+        "ol",
+        `${inlineCode("currency-pt-br")}<span> worktree: 21 files. It is not in 1.15.0.</span>`,
+        `${inlineCode("analytics")}<span> and </span>${inlineCode("installments")}<span> worktrees.</span>`,
+      ),
+    );
+    const itemStart = textReading(root, "currency-pt-br");
+    const and = textReading(root, " and ");
+    const selection = select([itemStart, 0], [and, 4]);
+    const read = readCommentableSelection({ selection, root, blocksOf: noBlocks });
+    expect(read).toMatchObject({
+      quote: "`currency-pt-br` worktree: 21 files. It is not in 1.15.0.\n\n2. `analytics` and",
+      endBlock: 0,
+      endItem: [1],
+    });
+    if (!read) throw new Error("Expected a commentable selection");
+    expect(rangesForQuote({ root, anchor: read, blocks: [] }).map(String)).toEqual([
+      String(selection.getRangeAt(0)),
+    ]);
   });
 });

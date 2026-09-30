@@ -9,7 +9,7 @@ import { isWeb } from "@/constants/platform";
 import { QuoteLine, cardStyles } from "./card";
 import type { ParsedOutputComment } from "./fence";
 import { deliveredCommentKey, quotePlainText } from "./match";
-import { useSentCommentBlockText, useStreamViewportRef } from "./stream";
+import { useSentCommentQuote, useStreamViewportRef } from "./stream";
 
 interface SentOutputCommentsProps {
   itemId: string;
@@ -77,13 +77,13 @@ interface SentCommentCardProps {
 }
 
 function SentCommentCard({ itemId, comment }: SentCommentCardProps) {
-  const blockText = useSentCommentBlockText(deliveredCommentKey(itemId, comment.position));
+  const sent = useSentCommentQuote(deliveredCommentKey(itemId, comment.position));
   return (
     <View style={[cardStyles.card, cardStyles.delivered]}>
-      {blockText === null ? (
+      {sent === null ? (
         <PlainQuoteLine comment={comment} />
       ) : (
-        <QuoteLine blockText={blockText} anchor={comment} />
+        <QuoteLine blockText={sent.blockText} anchor={sent.comment} />
       )}
       <Text style={cardStyles.note}>{comment.note}</Text>
     </View>

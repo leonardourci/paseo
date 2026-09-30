@@ -29,6 +29,7 @@ import {
   type PendingOutputComment,
   type PlacedOutputComment,
 } from "./store";
+import type { MessageBlocksOf } from "./types";
 
 interface PendingOutputCommentCardProps {
   draftKey: string;
@@ -37,6 +38,7 @@ interface PendingOutputCommentCardProps {
   comment: PlacedOutputComment;
   number: number;
   blockText: string;
+  blocksOf: MessageBlocksOf;
   composer: OutputCommentsComposer;
 }
 
@@ -106,6 +108,7 @@ export function PendingOutputCommentCard({
   comment,
   number,
   blockText,
+  blocksOf,
   composer,
 }: PendingOutputCommentCardProps) {
   const { t } = useTranslation();
@@ -191,8 +194,8 @@ export function PendingOutputCommentCard({
   }, [id, setActiveKey, setMentionsFocused]);
   const handlePress = useCallback(() => {
     setActiveKey(id);
-    revealOutputCommentQuote(cardId, comment);
-  }, [cardId, comment, id, setActiveKey]);
+    revealOutputCommentQuote({ cardId, anchor: comment, blocks: blocksOf(comment.sourceItemId) });
+  }, [blocksOf, cardId, comment, id, setActiveKey]);
 
   return (
     <Pressable

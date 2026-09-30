@@ -28,3 +28,17 @@ export function mountMessage(...blocks: string[]): HTMLElement {
 export function paragraph(text: string): string {
   return `<div data-paseo-markdown-tag="p">${text}</div>`;
 }
+
+export function inlineCode(text: string): string {
+  return `<span data-paseo-markdown-tag="code">${text}</span>`;
+}
+
+/** A list as react-native-web renders a tight one: each item a marker, then its text, no paragraph. */
+export function renderedList(tag: "ul" | "ol", ...items: string[]): string {
+  const rendered = items.map(
+    (html, index) =>
+      `<div data-paseo-markdown-tag="li"><div data-paseo-markdown-ignore="true" data-paseo-markdown-list-marker="true">${tag === "ol" ? `${index + 1}.` : "•"}</div><div><div>${html}</div></div></div>`,
+  );
+  const start = tag === "ol" ? ' data-paseo-markdown-list-start="1"' : "";
+  return `<div data-paseo-markdown-tag="${tag}"${start}>${rendered.join("")}</div>`;
+}

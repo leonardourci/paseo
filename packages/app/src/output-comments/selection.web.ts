@@ -6,7 +6,8 @@ import {
   MARKDOWN_COPY_TAG_ATTRIBUTE,
 } from "@/assistant-selection-copy/markup";
 import type { QuoteAnchor } from "./fence";
-import { quotePieces } from "./match";
+import { blockHolds, quotePieces } from "./match";
+import type { MessageBlocks, MessageBlocksOf } from "./types";
 
 const ROW = "[data-history-row-id]";
 const ASSISTANT_MESSAGE = '[data-testid="assistant-message"]';
@@ -19,6 +20,24 @@ export interface CommentableSelection extends QuoteAnchor {
   rect: DOMRect;
 }
 
+interface CommentableSelectionInput {
+  selection: Selection | null;
+  root: HTMLElement;
+  blocksOf: MessageBlocksOf;
+}
+
+interface QuotePiecesInput {
+  rows: ReadonlyMap<number, HTMLElement>;
+  anchor: Pick<QuoteAnchor, "quote" | "isCode" | "startBlock" | "endBlock">;
+  blocks: MessageBlocks;
+}
+
+interface OccurrenceInput {
+  row: HTMLElement;
+  piece: string | undefined;
+  selected: Range;
+}
+
 interface SelectionEnd {
   row: HTMLElement;
   range: Range;
@@ -29,20 +48,37 @@ function rowOf(node: Node): HTMLElement | null {
   return element?.closest<HTMLElement>(ROW) ?? null;
 }
 
-export function blockIndexOfRow(row: HTMLElement): number | null {
+function blockIndexOfRow(row: HTMLElement): number | null {
   return getAssistantBlockIndex(row.dataset.historyRowId ?? "");
+}
+
+export function messageRowsByBlock(
+  root: HTMLElement,
+  sourceItemId: string,
+): Map<number, HTMLElement> {
+  const rows = new Map<number, HTMLElement>();
+  for (const row of findMessageRows(root, sourceItemId)) {
+    const block = blockIndexOfRow(row);
+    if (block !== null) rows.set(block, row);
+  }
+  return rows;
+}
+
+/** The quote's pieces, a row each, grouped by what the rows hold, rendered or not. */
+export function quotePiecesInRows({ rows, anchor, blocks }: QuotePiecesInput): string[] {
+  return quotePieces(anchor, (offset, text) => {
+    const block = anchor.startBlock + offset;
+    const row = rows.get(block);
+    if (!row) return blockHolds(blocks[block] ?? "", text);
+    return findRenderedMatches(row, text, { mode: "quote" }).length > 0;
+  });
 }
 
 /**
  * The occurrence of the quote's first piece that starts where the selection does, else the first
  * after its start (a selection opening on a space or a formatting edge), else the first.
  */
-function occurrenceAt(
-  row: HTMLElement,
-  anchor: Pick<QuoteAnchor, "quote" | "isCode">,
-  selected: Range,
-): number {
-  const [piece] = quotePieces(anchor);
+function occurrenceAt({ row, piece, selected }: OccurrenceInput): number {
   if (!piece) return 0;
   const matches = findRenderedMatches(row, piece, { mode: "quote" });
   const startsAt = (match: Range) => match.compareBoundaryPoints(Range.START_TO_START, selected);
@@ -123,10 +159,11 @@ function selectionEnd(range: Range, root: HTMLElement, sourceItemId: string): Se
   return { row, range: clamped };
 }
 
-export function readCommentableSelection(
-  selection: Selection | null,
-  root: HTMLElement,
-): CommentableSelection | null {
+export function readCommentableSelection({
+  selection,
+  root,
+  blocksOf,
+}: CommentableSelectionInput): CommentableSelection | null {
   if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
   const range = selection.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return null;
@@ -144,7 +181,12 @@ export function readCommentableSelection(
   const isCode = isInsideCode(end.range);
   // Code keeps its leading indentation.
   const quote = isCode ? content.plainText.trimEnd() : content.plainText.trim();
-  const occurrence = occurrenceAt(startRow, { quote, isCode }, range);
+  const [piece] = quotePiecesInRows({
+    rows: messageRowsByBlock(root, sourceItemId),
+    anchor: { quote, isCode, startBlock, endBlock },
+    blocks: blocksOf(sourceItemId),
+  });
+  const occurrence = occurrenceAt({ row: startRow, piece, selected: range });
   const endItem = endItemPath(end.row, end.range);
   return { sourceItemId, startBlock, endBlock, quote, occurrence, isCode, endItem, rect };
 }

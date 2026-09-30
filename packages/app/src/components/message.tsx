@@ -71,7 +71,7 @@ import { markdownNodeContainsType } from "@/utils/markdown-ast";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { MarkdownFenceBlock } from "@/components/markdown/fence";
-import { ListItemSlotContext } from "@/components/markdown/list-item-slot";
+import { MarkdownSlotContext } from "@/components/markdown/slot";
 import type { MarkdownPhase } from "@/components/markdown/fence/types";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { useRevealedText } from "@/hooks/use-revealed-text";
@@ -1570,9 +1570,22 @@ export const AssistantMessage = memo(function AssistantMessage({
     return false;
   });
 
-  const renderAfterListItem = useContext(ListItemSlotContext);
+  const renderSlot = useContext(MarkdownSlotContext);
   const markdownRules = useMemo<RenderRules>(() => {
     return {
+      // One element type per node whether or not a card follows, so a card coming or going doesn't
+      // remount the body.
+      body: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+        <View key={node.key} style={styles._VIEW_SAFE_body}>
+          {children.map((child, index) => (
+            <React.Fragment key={node.children[index]?.key ?? index}>
+              {child}
+              {renderSlot ? renderSlot({ node: index }) : null}
+            </React.Fragment>
+          ))}
+          {renderSlot ? renderSlot({ rest: children.length }) : null}
+        </View>
+      ),
       heading1: (
         node: ASTNode,
         children: ReactNode[],
@@ -1915,7 +1928,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         const iconStyle = isOrdered ? styles.ordered_list_icon : styles.bullet_list_icon;
         const contentStyle = isOrdered ? styles.ordered_list_content : styles.bullet_list_content;
 
-        const path = renderAfterListItem ? getMarkdownListItemPath(node, parent) : null;
+        const path = renderSlot ? getMarkdownListItemPath(node, parent) : null;
         // One element type whether or not a card follows, so a card coming or going doesn't
         // remount the list.
         return (
@@ -1928,7 +1941,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 {children}
               </MarkdownListItemContent>
             </View>
-            {renderAfterListItem && path ? renderAfterListItem(path) : null}
+            {renderSlot && path ? renderSlot({ item: path }) : null}
           </React.Fragment>
         );
       },
@@ -2010,7 +2023,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     markdownParser,
     occurrenceKey,
     phase,
-    renderAfterListItem,
+    renderSlot,
     serverId,
     workspaceRoot,
   ]);

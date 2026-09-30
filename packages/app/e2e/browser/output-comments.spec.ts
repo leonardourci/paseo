@@ -92,6 +92,38 @@ const LIST_RESPONSE = [
   "1. Ship the build",
 ].join("\n");
 
+// No blank line inside each block, so each holds two top-level nodes.
+const TWO_NODE_BLOCKS_RESPONSE = [
+  "# The parser",
+  "It reads the config.",
+  "",
+  "The parser is ready, in draft.",
+  "- Tokenize the source",
+  "- Build the tree",
+  "",
+  "Run this:",
+  "```sh",
+  "npm test",
+  "```",
+].join("\n");
+
+// A quote across the ordered list's items stays in one row; one from the paragraph after it,
+// through the bullet list, into the last runs across three.
+const ACROSS_ROWS_RESPONSE = [
+  "Where each worktree stands:",
+  "",
+  "1. `currency-pt-br` worktree: 21 files, covering the R$ cut-off fix. It is not in 1.15.0.",
+  "2. `analytics` and `installments` worktrees: 38 and 51 files differ from `main`.",
+  "",
+  "The parser warms up first.",
+  "",
+  "- Tokenize the source",
+  "- Build the tree",
+  "- Emit the output",
+  "",
+  "Then the parser rests.",
+].join("\n");
+
 const CONFIG_QUOTE = "The parser reads the [config] file before anything else.";
 const THREE_QUOTE = "Retries stop after [three] attempts.";
 
@@ -580,6 +612,101 @@ test("a comment's card follows the list item its quote ends in, before and after
     await expect
       .poll(() => cardPlaces(deliveredCards(page)))
       .toEqual([...places, { before: "Tokenize the source", after: null }]);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a comment's card follows the node its quote ends in when another node follows it in the block, before and after sending", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-two-nodes-",
+    response: TWO_NODE_BLOCKS_RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "parser", note: "which parser?" });
+    await commentOn(page, { quote: "in draft", note: "why a draft?" });
+    await commentOn(page, { quote: "Run this", note: "where?" });
+
+    const places = [
+      { before: "The parser", after: "It reads the config." },
+      { before: "The parser is ready, in draft.", after: "Tokenize the source" },
+      { before: "Run this:", after: "npm test" },
+    ];
+    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
+
+    await fillComposerDraft(page, "Please revise.");
+    await composerLocator(page).press("Enter");
+
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a card on a node or list item the message's render cap leaves out follows what did render", async ({
+  page,
+}) => {
+  const capped = "Long ".repeat(7_000).trim();
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-capped-",
+    response: [capped, "# Heading", "- one", "- two", "", "Second block."].join("\n"),
+  });
+  try {
+    await expect(page.getByTestId("assistant-message-capped-notice")).toBeVisible();
+    const comment = { startBlock: 0, occurrence: 0, isCode: false };
+    await agent.client.sendAgentMessage(
+      agent.agentId,
+      withOutputComments("", [
+        { ...comment, quote: "Heading", note: "past the cap" },
+        { ...comment, quote: "one", note: "an item past the cap", endItem: [0] },
+      ]),
+    );
+
+    await expect(deliveredCards(page)).toHaveCount(2);
+    await expect(deliveredCards(page).first()).toBeVisible();
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a quote across list items or rows paints each row and places at its end, before and after sending", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-across-rows-",
+    response: ACROSS_ROWS_RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "currency-pt-br", through: "38 and 51", note: "status?" });
+    await commentOn(page, { quote: "warms up", through: "Then the", note: "all of it?" });
+
+    const places = [
+      { before: "analytics", after: null },
+      { before: "Then the parser rests.", after: null },
+    ];
+    // A copy splits the bullet list into a block per item; the list's row takes all three back.
+    const painted = (tints: ["pending" | "delivered", "active" | "delivered"]) =>
+      expectCommentHighlights(page, [
+        {
+          text: "[currency-pt-br worktree: 21 files, covering the R$ cut-off fix. It is not in 1.15.0.2.analytics and installments worktrees: 38 and 51] files differ from ",
+          tint: tints[0],
+        },
+        { text: "The parser [warms up first.]", tint: tints[1] },
+        { text: "[Tokenize the source•Build the tree•Emit the output]", tint: tints[1] },
+        { text: "[Then the] parser rests.", tint: tints[1] },
+      ]);
+    await painted(["pending", "active"]);
+    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
+
+    await fillComposerDraft(page, "Please revise.");
+    await composerLocator(page).press("Enter");
+
+    await expect(pendingCards(page)).toHaveCount(0);
+    await painted(["delivered", "delivered"]);
+    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
   } finally {
     await agent.cleanup();
   }

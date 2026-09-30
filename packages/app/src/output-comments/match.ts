@@ -58,11 +58,56 @@ function markdownToPlainText(markdown: string): string {
 }
 
 /**
- * The quote's text per block it spans, blank for a block with no text (a rule) so each piece
- * stays at its block's offset. Code is one piece, as written.
+ * The quote's text per Markdown block, blank for a block with no text (a rule). A code quote is one
+ * piece, as written.
  */
-export function quotePieces({ quote, isCode }: QuoteText): string[] {
+function quoteBlocks({ quote, isCode }: QuoteText): string[] {
   return isCode ? [quote] : splitMarkdownBlocks(quote).map(markdownToPlainText);
+}
+
+/** Whether the message's row `offset` rows after the quote's first holds `text`. */
+type RowHolds = (offset: number, text: string) => boolean;
+
+/**
+ * The quote's text per row it spans, blank for a row with no text (a rule), so each piece keeps its
+ * row's offset. A copy splits a list into a block per item, so a row can hold several: from the
+ * last row back, each takes the trailing blocks it holds, leaving one for every row before it.
+ * A row the list hasn't rendered answers `holds` from its Markdown, so what is mounted never
+ * changes the grouping.
+ */
+export function quotePieces(
+  anchor: QuoteText & Pick<QuoteAnchor, "startBlock" | "endBlock">,
+  holds: RowHolds,
+): string[] {
+  const blocks = quoteBlocks(anchor);
+  const rows = anchor.endBlock - anchor.startBlock + 1;
+  if (blocks.length <= rows) return blocks;
+  const pieces: string[] = [];
+  let end = blocks.length;
+  for (let offset = rows - 1; offset > 0; offset -= 1) {
+    let start = end - 1;
+    while (start > offset && holds(offset, blocks.slice(start - 1, end).join(" "))) start -= 1;
+    pieces.unshift(blocks.slice(start, end).join(" "));
+    end = start;
+  }
+  pieces.unshift(blocks.slice(0, end).join(" "));
+  return pieces;
+}
+
+export function blockHolds(blockText: string, text: string): boolean {
+  return collapseWhitespace(markdownToPlainText(blockText)).includes(collapseWhitespace(text));
+}
+
+/** The quote's pieces as the end block alone groups them, from its text as the reader sees it. */
+function piecesByEndBlock(
+  endBlockText: string,
+  anchor: QuoteText & Pick<QuoteAnchor, "startBlock" | "endBlock">,
+): string[] {
+  const end = anchor.endBlock - anchor.startBlock;
+  return quotePieces(
+    anchor,
+    (offset, text) => offset === end && endBlockText.includes(collapseWhitespace(text)),
+  );
 }
 
 interface QuoteSnippet {
@@ -98,11 +143,11 @@ export function quotePlainText({ quote, isCode }: QuoteText): string {
 
 export function quoteSnippet(
   blockText: string,
-  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode">,
+  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode" | "startBlock" | "endBlock">,
 ): QuoteSnippet {
   const block = collapseWhitespace(markdownToPlainText(blockText));
   const whole = quotePlainText(anchor);
-  const pieces = quotePieces(anchor).map(collapseWhitespace);
+  const pieces = piecesByEndBlock(block, anchor).map(collapseWhitespace);
   // Its own occurrence where the block still has it, else the first.
   const candidates: [string | undefined, number][] = [
     [whole, anchor.occurrence],
@@ -238,11 +283,12 @@ function holdsQuoteAt(item: AssistantMessageItem, anchor: QuoteAnchor): boolean 
   if (location?.startBlock !== anchor.startBlock || location.endBlock !== anchor.endBlock) {
     return false;
   }
-  const block = collapseWhitespace(
-    markdownToPlainText(splitMarkdownBlocks(item.text)[anchor.startBlock]),
+  const blocks = splitMarkdownBlocks(item.text);
+  const [first] = quotePieces(anchor, (offset, text) =>
+    blockHolds(blocks[anchor.startBlock + offset] ?? "", text),
   );
-  const piece = collapseWhitespace(quotePieces(anchor)[0] ?? "");
-  return indexOfOccurrence(block, piece, anchor.occurrence) !== -1;
+  const block = collapseWhitespace(markdownToPlainText(blocks[anchor.startBlock]));
+  return indexOfOccurrence(block, collapseWhitespace(first ?? ""), anchor.occurrence) !== -1;
 }
 
 /**
@@ -263,21 +309,24 @@ export function findMovedCommentSource(
 /**
  * The dot-joined paths of the list items in a block's Markdown, numbered as
  * `getMarkdownListItemPath` numbers them for the renderer: counting on across sibling lists, and
- * none inside a blockquote.
+ * none inside a blockquote. Each maps to the top-level node holding the item.
  */
-export function listItemPaths(blockText: string): Set<string> {
-  const paths = new Set<string>();
+export function listItemPaths(blockText: string): Map<string, number> {
+  const paths = new Map<string, number>();
   // Items seen so far per open container: the block, then each open item or blockquote.
   const counts = [0];
   const path: number[] = [];
   let quoteDepth = 0;
-  for (const { type } of parser.parse(blockText, {})) {
+  let node = -1;
+  for (const { type, level, nesting } of parser.parse(blockText, {})) {
+    // As `readTopLevelNodes` counts them.
+    if (level === 0 && nesting !== -1) node += 1;
     if (type === "list_item_open") {
       const container = counts.length - 1;
       path.push(counts[container]);
       counts[container] += 1;
       counts.push(0);
-      if (quoteDepth === 0) paths.add(path.join("."));
+      if (quoteDepth === 0) paths.set(path.join("."), node);
     } else if (type === "list_item_close") {
       path.pop();
       counts.pop();
@@ -290,6 +339,50 @@ export function listItemPaths(blockText: string): Set<string> {
     }
   }
   return paths;
+}
+
+export interface TopLevelNodes {
+  text: string;
+  nodeStarts: number[];
+}
+
+/** The block's text as `quoteSnippet` reads it, and where each top-level node starts in it. */
+export function readTopLevelNodes(blockText: string): TopLevelNodes {
+  const nodes: string[][] = [];
+  for (const token of parser.parse(blockText, {})) {
+    if (token.level === 0 && token.nesting !== -1) nodes.push([]);
+    const parts = nodes.at(-1);
+    if (parts) collectText([token], parts);
+  }
+  const read: TopLevelNodes = { text: "", nodeStarts: [] };
+  for (const parts of nodes) {
+    const text = collapseWhitespace(parts.join(""));
+    const separator = read.text && text ? " " : "";
+    read.nodeStarts.push(read.text.length + separator.length);
+    read.text += separator + text;
+  }
+  return read;
+}
+
+/**
+ * The top-level node of the end block the quote ends in, counted as the renderer counts the
+ * Markdown body's children, when another node follows it. Null when it ends in the last node, or
+ * the block no longer holds it: the card then follows the whole block.
+ */
+export function quoteEndNode(
+  block: TopLevelNodes,
+  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode" | "startBlock" | "endBlock">,
+): number | null {
+  if (block.nodeStarts.length < 2) return null;
+  const offset = anchor.endBlock - anchor.startBlock;
+  const needle = collapseWhitespace(piecesByEndBlock(block.text, anchor)[offset] ?? "");
+  if (!needle) return null;
+  // As `rangesForQuote` finds it: only the first block's piece names its occurrence.
+  let at = indexOfOccurrence(block.text, needle, offset === 0 ? anchor.occurrence : 0);
+  if (at === -1) at = block.text.indexOf(needle);
+  if (at === -1) return null;
+  const node = blockAt(block.nodeStarts, at + needle.length - 1);
+  return node < block.nodeStarts.length - 1 ? node : null;
 }
 
 export function deliveredCommentKey(turnItemId: string, position: number): string {

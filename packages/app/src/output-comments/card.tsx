@@ -9,16 +9,18 @@ import { quoteSnippet, type DeliveredOutputComment } from "./match";
 import { revealOutputCommentQuote } from "./reveal";
 import { useOutputCommentFocusStore } from "./store";
 import { HIGHLIGHT_ALPHA } from "./tint";
+import type { MessageBlocksOf } from "./types";
 
 interface QuoteLineProps {
   blockText: string;
-  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode">;
+  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode" | "startBlock" | "endBlock">;
 }
 
 interface DeliveredOutputCommentCardProps {
   surfaceId: string;
   comment: DeliveredOutputComment;
   blockText: string;
+  blocksOf: MessageBlocksOf;
 }
 
 export function QuoteLine({ blockText, anchor }: QuoteLineProps) {
@@ -37,6 +39,7 @@ export function DeliveredOutputCommentCard({
   surfaceId,
   comment,
   blockText,
+  blocksOf,
 }: DeliveredOutputCommentCardProps) {
   const { t } = useTranslation();
   const setActiveKey = useOutputCommentFocusStore((state) => state.setActiveKey);
@@ -44,8 +47,8 @@ export function DeliveredOutputCommentCard({
   const cardId = outputCommentCardId(surfaceId, comment.key);
   const handlePress = useCallback(() => {
     setActiveKey(comment.key);
-    revealOutputCommentQuote(cardId, comment);
-  }, [cardId, comment, setActiveKey]);
+    revealOutputCommentQuote({ cardId, anchor: comment, blocks: blocksOf(comment.sourceItemId) });
+  }, [blocksOf, cardId, comment, setActiveKey]);
   return (
     <Pressable
       nativeID={cardId}

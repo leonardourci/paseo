@@ -24,9 +24,9 @@ import type { DeliveredOutputComments } from "./match";
 import { rangesForQuote } from "./ranges.web";
 import { revealOutputCommentCard } from "./reveal";
 import { useOutputCommentFocusStore, type PendingOutputComment } from "./store";
-import { SURFACE_LAYER, surfaceRootOf } from "./surface.web";
+import { PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import { HIGHLIGHT_ALPHA, type Tint } from "./tint";
-import type { OutputCommentHighlightsProps } from "./types";
+import type { MessageBlocksOf, OutputCommentHighlightsProps } from "./types";
 
 interface PaintedComment {
   key: string;
@@ -44,6 +44,7 @@ interface PaintInput {
   comments: readonly PaintedComment[];
   colorOf: (comment: PaintedComment) => string;
   prefix: string;
+  blocksOf: MessageBlocksOf;
 }
 
 interface Painting {
@@ -68,7 +69,7 @@ const BADGE_LIFT = 2;
 const EMPTY_PILES: readonly BadgePile[] = [];
 const TEXT_BADGE_TEST_ID = "output-comment-text-badge";
 const KEEPS_ACTIVE = [
-  '[data-testid="output-comment-pending"]',
+  PENDING_CARD,
   '[data-testid="output-comment-delivered"]',
   `[data-testid="${TEXT_BADGE_TEST_ID}"]`,
   AUTOCOMPLETE_POPOVER_SELECTOR,
@@ -89,12 +90,16 @@ function paintDelivered(delivered: DeliveredOutputComments): PaintedComment[] {
 }
 
 /** One highlight name per quote, so overlapping translucent quotes stack. */
-function paintQuotes({ root, comments, colorOf, prefix }: PaintInput): Painting {
+function paintQuotes({ root, comments, colorOf, prefix, blocksOf }: PaintInput): Painting {
   const ends: QuoteEnd[] = [];
   const highlights = new Map<string, Highlight>();
   const rules: string[] = [];
   for (const [index, comment] of comments.entries()) {
-    const ranges = rangesForQuote(root, comment.anchor);
+    const ranges = rangesForQuote({
+      root,
+      anchor: comment.anchor,
+      blocks: blocksOf(comment.anchor.sourceItemId),
+    });
     const last = ranges.at(-1);
     if (!last) continue;
     const name = `${prefix}-${index}`;
@@ -219,6 +224,7 @@ export function OutputCommentHighlights({
   surfaceId,
   pending,
   delivered,
+  blocksOf,
 }: OutputCommentHighlightsProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLStyleElement>(null);
@@ -289,7 +295,7 @@ export function OutputCommentHighlights({
       frame = 0;
       if (areRangesStale) {
         areRangesStale = false;
-        const painting = paintQuotes({ root, comments, colorOf, prefix });
+        const painting = paintQuotes({ root, comments, colorOf, prefix, blocksOf });
         apply(painting.highlights, painting.css);
         ends = painting.ends;
       }
@@ -318,7 +324,7 @@ export function OutputCommentHighlights({
       cancelAnimationFrame(frame);
       clear();
     };
-  }, [activeKey, comments, isPanelActive, prefix]);
+  }, [activeKey, blocksOf, comments, isPanelActive, prefix]);
 
   return (
     <div ref={layerRef} style={SURFACE_LAYER}>
