@@ -50,6 +50,18 @@ A terminal opened inside Paseo exports these variables, and `PASEO_HOME` would m
 your real `~/.paseo` instead of `.dev/paseo-home`. `env -u` removes them for this one command; in
 any other terminal it changes nothing.
 
+The first start takes longer: it downloads Electron, and the dev daemon downloads about 1 GB of
+local speech models into `.dev/paseo-home`.
+
+If port 6768 is already taken, for example by the dev app of another checkout, set a different
+port with `PASEO_LISTEN`. `npm run dev:desktop` always sets 6768, and the start script rewrites the
+listen address in `config.json` on every start, so run the script it wraps instead:
+
+```bash
+env -u PASEO_HOME -u PASEO_CLI -u PASEO_AGENT_ID -u PASEO_AGENT_CWD \
+  PASEO_LISTEN=127.0.0.1:6778 npm run dev --workspace=@getpaseo/desktop
+```
+
 In the dev app, don't press **Install** under **Settings → Integrations → Command line**. It would
 point your `paseo` command at this checkout.
 
@@ -61,7 +73,8 @@ daemon with a pairing link:
 1. In your normal Paseo, open **Settings → your host → Pair device**. If relay is off, it asks to
    enable it; pairing links go through the relay. Copy the link under the QR code. Running
    `paseo daemon pair` in a terminal prints the same link.
-2. In the dev app, open **Settings → Add host → Paste pairing link** and paste it.
+2. In the dev app, open **Settings**, click the host name under **Host**, choose **Add host →
+   Paste pairing link**, and paste it.
 
 ## What to try
 
