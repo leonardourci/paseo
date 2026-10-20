@@ -276,6 +276,14 @@ export function noteBetween(
   return (isForward ? notes.find(isBetween) : notes.findLast(isBetween)) ?? null;
 }
 
+/** The last pending note past `at`: below the latest reply, the one nearest the composer. */
+export function lastNoteAfter(scroller: HTMLElement, at: TextPosition): HTMLTextAreaElement | null {
+  const notes = Array.from(
+    scroller.querySelectorAll<HTMLTextAreaElement>(`${PENDING_CARD} textarea`),
+  );
+  return notes.findLast((note) => comparePositions(besideNote(note, "backward"), at) > 0) ?? null;
+}
+
 /** The nearest end of output text from `at` in `direction`. */
 function textFrom(
   scroller: HTMLElement,
