@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
+import { PressHighlight } from "@/components/ui/press-highlight";
 import { StyleSheet } from "react-native-unistyles";
 import { AUTOCOMPLETE_POPOVER_SELECTOR } from "@/components/ui/autocomplete-popover";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -179,14 +180,14 @@ function TextBadgeButton({ surfaceId, placed, isActive }: TextBadgeButtonProps) 
       ]}
       testID={TEXT_BADGE_TEST_ID}
     >
-      <Pressable
+      <PressHighlight
         onPress={handlePress}
         accessibilityRole="button"
         accessibilityLabel={t("outputComments.label", { number: badge.number })}
         style={[styles.textBadgeLift, inlineUnistylesStyle({ transform: [{ translateY: lift }] })]}
       >
         <OutputCommentBadge number={badge.number} isHighlighted={isRaised} />
-      </Pressable>
+      </PressHighlight>
     </View>
   );
 }

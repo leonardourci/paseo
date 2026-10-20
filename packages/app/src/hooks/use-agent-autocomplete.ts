@@ -364,6 +364,16 @@ function resolveAutocompleteEmptyText(args: {
   return args.t("agentAutocomplete.noCommands");
 }
 
+function findSlashCommandAt(input: {
+  text: string;
+  cursorIndex: number;
+  inlineOnly: boolean | undefined;
+}): ReturnType<typeof findActiveSlashCommand> {
+  const command = findActiveSlashCommand({ text: input.text, cursorIndex: input.cursorIndex });
+  if (!command || !input.inlineOnly) return command;
+  return { ...command, position: "inline" as const };
+}
+
 export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAutocompleteResult {
   const { t } = useTranslation();
   const {
@@ -377,14 +387,13 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     onClientSlashCommand,
     canExecuteClientSlashCommand,
     pluginClientSlashCommands = [],
-    inlineOnly = false,
+    inlineOnly,
   } = input;
 
-  const activeSlashCommand = useMemo(() => {
-    const command = findActiveSlashCommand({ text: userInput, cursorIndex });
-    if (!command || !inlineOnly) return command;
-    return { ...command, position: "inline" as const };
-  }, [cursorIndex, inlineOnly, userInput]);
+  const activeSlashCommand = useMemo(
+    () => findSlashCommandAt({ text: userInput, cursorIndex, inlineOnly }),
+    [cursorIndex, inlineOnly, userInput],
+  );
   const showCommandAutocomplete = activeSlashCommand !== null;
   const commandFilterQuery = activeSlashCommand?.query ?? "";
 

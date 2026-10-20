@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Pressable,
-  View,
-  type NativeSyntheticEvent,
-  type TextInputKeyPressEventData,
-} from "react-native";
+import { View, type NativeSyntheticEvent, type TextInputKeyPressEventData } from "react-native";
+import { PressHighlight } from "@/components/ui/press-highlight";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { X } from "lucide-react-native";
 import type { AttachmentMetadata } from "@/attachments/types";
@@ -201,7 +197,7 @@ export function PendingOutputCommentCard({
   }, [blocksOf, cardId, comment, id, setActiveKey]);
 
   return (
-    <Pressable
+    <PressHighlight
       ref={cardRef}
       nativeID={cardId}
       dataSet={cardDataSet}
@@ -239,7 +235,7 @@ export function PendingOutputCommentCard({
         />
       </View>
       <NoteImages images={images} onRemove={handleRemoveImage} />
-    </Pressable>
+    </PressHighlight>
   );
 }
 
