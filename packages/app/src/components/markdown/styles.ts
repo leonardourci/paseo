@@ -27,7 +27,8 @@ export function createMarkdownStyles(
   });
   return {
     containerStyle: isWeb ? WEB_CONTAINER : undefined,
-    selectionColor: theme.colors.terminal.selectionBackground,
+    // On web the system's own selection colour, the one every other selected text shows.
+    selectionColor: isWeb ? "Highlight" : theme.colors.terminal.selectionBackground,
     markdownStyle: {
       paragraph,
       h1: heading(1.6),
