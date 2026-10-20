@@ -276,11 +276,12 @@ export function noteBetween(
   return (isForward ? notes.find(isBetween) : notes.findLast(isBetween)) ?? null;
 }
 
-export function textBesideNote(
+/** The nearest end of output text from `at` in `direction`. */
+function textFrom(
   scroller: HTMLElement,
-  input: { note: HTMLTextAreaElement; direction: CaretDirection },
+  input: { at: TextPosition; direction: CaretDirection },
 ): TextPosition | null {
-  const at = besideNote(input.note, "backward");
+  const { at } = input;
   const texts = contentTexts(scroller);
   if (input.direction === "backward") {
     const text = texts.findLast((node) => comparePositions({ node, offset: node.length }, at) < 0);
@@ -288,6 +289,29 @@ export function textBesideNote(
   }
   const text = texts.find((node) => comparePositions({ node, offset: 0 }, at) > 0);
   return text ? { node: text, offset: 0 } : null;
+}
+
+export function textBesideNote(
+  scroller: HTMLElement,
+  input: { note: HTMLTextAreaElement; direction: CaretDirection },
+): TextPosition | null {
+  return textFrom(scroller, { at: besideNote(input.note, "backward"), direction: input.direction });
+}
+
+/**
+ * Chromium stops a caret beside a table, where it draws none: such a stop goes on to the next text
+ * in the move's direction, into the table or out of it.
+ */
+export function pastTableEdge(
+  scroller: HTMLElement,
+  input: { focus: TextPosition; direction: CaretDirection },
+): TextPosition | null {
+  const { node, offset } = input.focus;
+  if (node instanceof Text) return null;
+  const isBesideTable = [node.childNodes[offset], node.childNodes[offset - 1]].some(
+    (child) => child instanceof HTMLTableElement,
+  );
+  return isBesideTable ? textFrom(scroller, { at: input.focus, direction: input.direction }) : null;
 }
 
 export function enterNote(note: HTMLTextAreaElement, direction: CaretDirection): void {
