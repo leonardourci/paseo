@@ -22,12 +22,12 @@ import {
 import { outputCommentCardId } from "./composer-context";
 import type { QuoteAnchor } from "./fence";
 import type { DeliveredOutputComments } from "./match";
-import { rangesForQuote } from "./ranges.web";
+import { rangeForQuote } from "./ranges.web";
 import { revealOutputCommentCard } from "./reveal";
 import { useOutputCommentFocusStore, type PendingOutputComment } from "./store";
 import { PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import { HIGHLIGHT_ALPHA, type Tint } from "./tint";
-import type { MessageBlocksOf, OutputCommentHighlightsProps } from "./types";
+import type { OutputCommentHighlightsProps } from "./types";
 
 interface PaintedComment {
   key: string;
@@ -45,7 +45,6 @@ interface PaintInput {
   comments: readonly PaintedComment[];
   colorOf: (comment: PaintedComment) => string;
   prefix: string;
-  blocksOf: MessageBlocksOf;
 }
 
 interface Painting {
@@ -90,22 +89,20 @@ function paintDelivered(delivered: DeliveredOutputComments): PaintedComment[] {
   }));
 }
 
-/** One highlight name per quote, so overlapping translucent quotes stack. */
-function paintQuotes({ root, comments, colorOf, prefix, blocksOf }: PaintInput): Painting {
+/**
+ * One highlight name per quote, so overlapping translucent quotes stack. Each paints over the text
+ * as it rendered, without an element of its own.
+ */
+function paintQuotes({ root, comments, colorOf, prefix }: PaintInput): Painting {
   const ends: QuoteEnd[] = [];
   const highlights = new Map<string, Highlight>();
   const rules: string[] = [];
   for (const [index, comment] of comments.entries()) {
-    const ranges = rangesForQuote({
-      root,
-      anchor: comment.anchor,
-      blocks: blocksOf(comment.anchor.sourceItemId),
-    });
-    const last = ranges.at(-1);
-    if (!last) continue;
+    const range = rangeForQuote({ root, anchor: comment.anchor });
+    if (!range) continue;
     const name = `${prefix}-${index}`;
-    ends.push({ comment, range: last });
-    highlights.set(name, new Highlight(...ranges));
+    ends.push({ comment, range });
+    highlights.set(name, new Highlight(range));
     rules.push(`::highlight(${name}) { background-color: ${colorOf(comment)}; }`);
   }
   return { ends, highlights, css: rules.join("\n") };
@@ -225,7 +222,6 @@ export function OutputCommentHighlights({
   surfaceId,
   pending,
   delivered,
-  blocksOf,
 }: OutputCommentHighlightsProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLStyleElement>(null);
@@ -296,7 +292,7 @@ export function OutputCommentHighlights({
       frame = 0;
       if (areRangesStale) {
         areRangesStale = false;
-        const painting = paintQuotes({ root, comments, colorOf, prefix, blocksOf });
+        const painting = paintQuotes({ root, comments, colorOf, prefix });
         apply(painting.highlights, painting.css);
         ends = painting.ends;
       }
@@ -306,7 +302,8 @@ export function OutputCommentHighlights({
       if (frame === 0) frame = requestAnimationFrame(update);
     };
     // Output streaming into other messages only moves the badges; quotes find their text again
-    // only when their own message changes.
+    // only when their own message changes, or finishes streaming. A row the list mounts again is
+    // such a change.
     const observer = new MutationObserver((records) => {
       const outside = records.filter((record) => !layer.contains(record.target));
       if (outside.length === 0) return;
@@ -315,7 +312,12 @@ export function OutputCommentHighlights({
     });
     const resizeObserver = new ResizeObserver(schedule);
     update();
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributeFilter: ["data-message-streaming"],
+    });
     resizeObserver.observe(layer);
     document.addEventListener("scroll", schedule, true);
     return () => {
@@ -325,7 +327,7 @@ export function OutputCommentHighlights({
       cancelAnimationFrame(frame);
       clear();
     };
-  }, [activeKey, blocksOf, comments, isPanelActive, prefix]);
+  }, [activeKey, comments, isPanelActive, prefix]);
 
   return (
     <div ref={layerRef} style={SURFACE_LAYER}>

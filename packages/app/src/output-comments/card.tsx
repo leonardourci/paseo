@@ -5,27 +5,58 @@ import { PressHighlight } from "@/components/ui/press-highlight";
 import { StyleSheet } from "react-native-unistyles";
 import { colorWithAlpha } from "@/utils/color";
 import { outputCommentCardId } from "./composer-context";
-import type { QuoteAnchor } from "./fence";
-import { quoteSnippet, type DeliveredOutputComment } from "./match";
+import {
+  quotePlainText,
+  quoteSnippet,
+  type DeliveredOutputComment,
+  type LocatedQuote,
+} from "./match";
 import { revealOutputCommentQuote } from "./reveal";
 import { useOutputCommentFocusStore } from "./store";
 import { HIGHLIGHT_ALPHA } from "./tint";
-import type { MessageBlocksOf } from "./types";
 
 interface QuoteLineProps {
-  blockText: string;
-  anchor: Pick<QuoteAnchor, "quote" | "occurrence" | "isCode" | "startBlock" | "endBlock">;
+  /**
+   * The reply's text, as `replyPlainText` reads it, to show the quote in. Null while the reply is
+   * not loaded or still streaming: the quote shows as written.
+   */
+  replyText: string | null;
+  anchor: LocatedQuote;
 }
 
 interface DeliveredOutputCommentCardProps {
   surfaceId: string;
   comment: DeliveredOutputComment;
-  blockText: string;
-  blocksOf: MessageBlocksOf;
+  replyText: string | null;
 }
 
-export function QuoteLine({ blockText, anchor }: QuoteLineProps) {
-  const snippet = useMemo(() => quoteSnippet(blockText, anchor), [anchor, blockText]);
+/** The quote as written; a quote the reply no longer holds says so, instead of standing on other words. */
+function PlainQuoteLine({
+  anchor,
+  isUnresolved,
+}: Pick<QuoteLineProps, "anchor"> & { isUnresolved: boolean }) {
+  const { t } = useTranslation();
+  const quote = useMemo(() => quotePlainText(anchor), [anchor]);
+  if (!quote) return null;
+  return (
+    <Text
+      selectable={false}
+      numberOfLines={1}
+      ellipsizeMode="tail"
+      style={cardStyles.quoteLine}
+      testID={isUnresolved ? "output-comment-unresolved" : undefined}
+    >
+      {isUnresolved ? t("outputComments.unresolved", { quote }) : quote}
+    </Text>
+  );
+}
+
+export function QuoteLine({ replyText, anchor }: QuoteLineProps) {
+  const snippet = useMemo(
+    () => (replyText === null ? null : quoteSnippet(replyText, anchor)),
+    [anchor, replyText],
+  );
+  if (!snippet) return <PlainQuoteLine anchor={anchor} isUnresolved={replyText !== null} />;
   if (snippet.match.length === 0) return null;
   return (
     <Text selectable={false} numberOfLines={1} ellipsizeMode="tail" style={cardStyles.quoteLine}>
@@ -39,8 +70,7 @@ export function QuoteLine({ blockText, anchor }: QuoteLineProps) {
 export function DeliveredOutputCommentCard({
   surfaceId,
   comment,
-  blockText,
-  blocksOf,
+  replyText,
 }: DeliveredOutputCommentCardProps) {
   const { t } = useTranslation();
   const setActiveKey = useOutputCommentFocusStore((state) => state.setActiveKey);
@@ -48,8 +78,8 @@ export function DeliveredOutputCommentCard({
   const cardId = outputCommentCardId(surfaceId, comment.key);
   const handlePress = useCallback(() => {
     setActiveKey(comment.key);
-    revealOutputCommentQuote({ cardId, anchor: comment, blocks: blocksOf(comment.sourceItemId) });
-  }, [blocksOf, cardId, comment, setActiveKey]);
+    revealOutputCommentQuote({ cardId, anchor: comment });
+  }, [cardId, comment, setActiveKey]);
   return (
     <PressHighlight
       nativeID={cardId}
@@ -59,7 +89,7 @@ export function DeliveredOutputCommentCard({
       style={[cardStyles.card, cardStyles.delivered, isActive && cardStyles.active]}
       testID="output-comment-delivered"
     >
-      <QuoteLine blockText={blockText} anchor={comment} />
+      <QuoteLine replyText={replyText} anchor={comment} />
       <Text selectable={false} style={cardStyles.note}>
         {comment.note}
       </Text>

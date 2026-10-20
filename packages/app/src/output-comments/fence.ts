@@ -1,24 +1,21 @@
 export interface QuoteAnchor {
+  /** The assistant message, one reply, the quote is in. */
   sourceItemId: string;
-  startBlock: number;
-  endBlock: number;
   /** Markdown source, not rendered text. */
   quote: string;
-  /** 0-based index among case-sensitive occurrences of the quote's first block text. */
+  /** 0-based index among the reply's case-sensitive occurrences of the quote's text. */
   occurrence: number;
   /** Selected inside code, so the quote is code, not Markdown. */
   isCode: boolean;
   /**
-   * The list item the quote ends in, as its index path in the end block: [2, 0] is the first
-   * item nested in the third. Absent when it ends outside one.
+   * A little of the reply's text right before and after the quote, as it reads, which tells its
+   * occurrences apart. Absent on a comment read back from a sent message.
    */
-  endItem?: number[];
+  prefix?: string;
+  suffix?: string;
 }
 
-export interface OutputComment extends Pick<
-  QuoteAnchor,
-  "quote" | "startBlock" | "occurrence" | "isCode" | "endItem"
-> {
+export interface OutputComment extends Pick<QuoteAnchor, "quote" | "occurrence" | "isCode"> {
   note: string;
   /**
    * Which assistant message the quote came from, counted back from the user turn carrying the
@@ -38,9 +35,10 @@ interface ParsedOutputComments {
 }
 
 const FENCE_INFO = "paseo-comment";
-// Six digits at most, so no number parses to Infinity.
+// Six digits at most, so no number parses to Infinity. Fences sent before comments anchored to
+// the whole reply also carry its block (`block=`) and list item (`item=`).
 const FENCE_OPENING = new RegExp(
-  `^(\`{3,})${FENCE_INFO}[ \\t]+block=(\\d{1,6})(?:[ \\t]+occ=(\\d{1,6}))?(?:[ \\t]+msg=([1-9]\\d{0,5}))?(?:[ \\t]+item=(\\d{1,6}(?:\\.\\d{1,6})*))?(?:[ \\t]+(code))?[ \\t]*$`,
+  `^(\`{3,})${FENCE_INFO}(?:[ \\t]+block=(\\d{1,6}))?(?:[ \\t]+occ=(\\d{1,6}))?(?:[ \\t]+msg=([1-9]\\d{0,5}))?(?:[ \\t]+item=\\d{1,6}(?:\\.\\d{1,6})*)?(?:[ \\t]+(code))?[ \\t]*$`,
 );
 
 function quoteLines(markdown: string): string[] {
@@ -59,9 +57,8 @@ function serializeComment(comment: OutputComment): string {
   const fence = fenceFor(body);
   const occurrence = comment.occurrence > 0 ? ` occ=${comment.occurrence}` : "";
   const ordinal = comment.messageOrdinal === undefined ? "" : ` msg=${comment.messageOrdinal}`;
-  const item = comment.endItem === undefined ? "" : ` item=${comment.endItem.join(".")}`;
   const code = comment.isCode ? " code" : "";
-  return `${fence}${FENCE_INFO} block=${comment.startBlock}${occurrence}${ordinal}${item}${code}\n${body}\n${fence}`;
+  return `${fence}${FENCE_INFO}${occurrence}${ordinal}${code}\n${body}\n${fence}`;
 }
 
 /**
@@ -103,14 +100,15 @@ function readFence(lines: readonly string[], opening: number): FencedComment | n
     .slice(0, split)
     .map((line) => line.replace(/^> ?/, ""))
     .join("\n");
-  const startBlock = Number(header[2]);
-  const occurrence = Number(header[3] ?? "0");
+  // A legacy `occ` counts within its block, which is the reply's count only in the first block.
+  // ponytail: elsewhere it falls back to the reply's first occurrence; counting the occurrences
+  // before that block would need the old block split back.
+  const isInLaterBlock = Number(header[2] ?? "0") > 0;
+  const occurrence = isInLaterBlock ? 0 : Number(header[3] ?? "0");
   const ordinal = header[4];
-  const item = header[5];
-  const isCode = header[6] !== undefined;
-  const comment: OutputComment = { quote, note, startBlock, occurrence, isCode };
+  const isCode = header[5] !== undefined;
+  const comment: OutputComment = { quote, note, occurrence, isCode };
   if (ordinal !== undefined) comment.messageOrdinal = Number(ordinal);
-  if (item !== undefined) comment.endItem = item.split(".").map(Number);
   return { comment, closing };
 }
 

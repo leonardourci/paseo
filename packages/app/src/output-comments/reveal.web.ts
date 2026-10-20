@@ -1,5 +1,5 @@
 import { CHAT_SCROLL_SELECTOR } from "@/assistant-selection-copy/content.web";
-import { rangesForQuote } from "./ranges.web";
+import { rangeForQuote } from "./ranges.web";
 import type { RevealQuoteInput } from "./types";
 
 /** False when the card is in history the list hasn't rendered, so there is nothing to show. */
@@ -9,10 +9,10 @@ export function revealOutputCommentCard(cardId: string): boolean {
   return card !== null;
 }
 
-/** Scrolls to the quote itself: its block can be taller than the chat, so centring that misses it. */
-export function revealOutputCommentQuote({ cardId, anchor, blocks }: RevealQuoteInput): void {
+/** Scrolls to the quote itself: its reply can be taller than the chat, so centring that misses it. */
+export function revealOutputCommentQuote({ cardId, anchor }: RevealQuoteInput): void {
   const scroller = document.getElementById(cardId)?.closest<HTMLElement>(CHAT_SCROLL_SELECTOR);
-  const range = scroller ? rangesForQuote({ root: scroller, anchor, blocks })[0] : undefined;
+  const range = scroller ? rangeForQuote({ root: scroller, anchor }) : null;
   if (!scroller || !range) return;
   const quote = range.getBoundingClientRect();
   const view = scroller.getBoundingClientRect();

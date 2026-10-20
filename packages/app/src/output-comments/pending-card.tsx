@@ -26,7 +26,6 @@ import {
   useOutputCommentsStore,
   type PlacedOutputComment,
 } from "./store";
-import type { MessageBlocksOf } from "./types";
 
 interface PendingOutputCommentCardProps {
   draftKey: string;
@@ -34,8 +33,8 @@ interface PendingOutputCommentCardProps {
   agentId: string;
   comment: PlacedOutputComment;
   number: number;
-  blockText: string;
-  blocksOf: MessageBlocksOf;
+  /** The reply's text, as `QuoteLine` takes it. */
+  replyText: string | null;
   composer: OutputCommentsComposer;
 }
 
@@ -96,8 +95,7 @@ export function PendingOutputCommentCard({
   agentId,
   comment,
   number,
-  blockText,
-  blocksOf,
+  replyText,
   composer,
 }: PendingOutputCommentCardProps) {
   const { t } = useTranslation();
@@ -193,8 +191,8 @@ export function PendingOutputCommentCard({
   }, [id, setActiveKey, setMentionsFocused]);
   const handlePress = useCallback(() => {
     setActiveKey(id);
-    revealOutputCommentQuote({ cardId, anchor: comment, blocks: blocksOf(comment.sourceItemId) });
-  }, [blocksOf, cardId, comment, id, setActiveKey]);
+    revealOutputCommentQuote({ cardId, anchor: comment });
+  }, [cardId, comment, id, setActiveKey]);
 
   return (
     <PressHighlight
@@ -208,7 +206,7 @@ export function PendingOutputCommentCard({
       testID="output-comment-pending"
     >
       <AutocompletePopover {...mentions.popover} anchorRef={cardRef} />
-      <QuoteLine blockText={blockText} anchor={comment} />
+      <QuoteLine replyText={replyText} anchor={comment} />
       <View style={styles.row}>
         <OutputCommentBadge number={number} isHighlighted={isActive} />
         <NoteInput

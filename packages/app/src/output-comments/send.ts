@@ -108,10 +108,8 @@ function toOutputComment(
   return {
     quote: comment.quote,
     note: noteWithImages(comment, imageIds),
-    startBlock: comment.startBlock,
     occurrence: comment.occurrence,
     isCode: comment.isCode,
-    endItem: comment.endItem,
     messageOrdinal: ordinalOf(comment.sourceItemId, loaded),
   };
 }
@@ -228,12 +226,9 @@ export function restoreOutgoingText({
     comments.push({
       id: generateMessageId(),
       sourceItemId: target.sourceItemId,
-      startBlock: target.startBlock,
-      endBlock: target.endBlock,
       quote: comment.quote,
       occurrence: comment.occurrence,
       isCode: comment.isCode,
-      endItem: target.endItem,
       ...splitImageMarkers(comment.note, imageIds),
     });
   }

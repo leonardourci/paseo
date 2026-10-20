@@ -705,7 +705,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             onOpenWorkspaceFile={handleInlinePathPress}
             toast={toast}
           >
-            <OutputCommentsMessage sourceItemId={getStreamItemMessageId(item)}>
+            <OutputCommentsMessage item={item} isComplete={layoutItem.phase === "complete"}>
               <ChatFindExpansion messageId={getStreamItemMessageId(item)}>
                 {(renderFullContent) => (
                   <AssistantMessage

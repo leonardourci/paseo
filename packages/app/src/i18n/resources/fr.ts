@@ -2102,6 +2102,7 @@ export const fr: TranslationResources = {
     placeholder: "Ajouter un commentaire",
     remove: "Supprimer le commentaire",
     sentLabel: "Commentaire envoyé",
+    unresolved: "Citation introuvable : {{quote}}",
     composerTitle: "Commentaires sur la réponse",
     show: "Afficher les commentaires",
     hide: "Masquer les commentaires",

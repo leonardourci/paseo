@@ -1,6 +1,5 @@
 import {
   createContext,
-  Fragment,
   memo,
   useContext,
   useEffect,
@@ -17,14 +16,9 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { markdownCopyDataSet } from "@/assistant-selection-copy/markup";
 import { OutputCaretLayer } from "@/output-caret/layer";
-import { MarkdownBlockStack } from "@/components/markdown/block-stack";
-import { MarkdownBlocksContext, type RenderMarkdownBlocks } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { isWeb } from "@/constants/platform";
-import { useStableEvent } from "@/hooks/use-stable-event";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
 import type { AssistantMessageItem, StreamItem } from "@/types/stream";
-import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { DeliveredOutputCommentCard } from "./card";
 import { useOutputCommentsComposer } from "./composer-context";
 import { useDeliveredTurns } from "./delivered";
@@ -32,17 +26,13 @@ import { OutputCommentHighlights } from "./highlights";
 import type { QuoteAnchor } from "./fence";
 import {
   findMovedCommentSource,
-  listItemPaths,
-  quoteEndNode,
-  readTopLevelNodes,
+  locateQuote,
+  replyTextOf,
   type DeliveredOutputComment,
   type DeliveredOutputComments,
-  type TopLevelNodes,
 } from "./match";
 import { PendingOutputCommentCard } from "./pending-card";
-import { splitMarkdownAtSlots, type MarkdownPiece } from "./split";
 import { OutputCommentSelectionLayer } from "./selection-layer";
-import type { MessageBlocks, MessageBlocksOf } from "./types";
 import {
   EMPTY_PENDING_COMMENTS,
   loadedComments,
@@ -62,24 +52,10 @@ interface OutputCommentsLayerProps {
 }
 
 interface OutputCommentsMessageProps {
-  sourceItemId: string;
+  item: AssistantMessageItem;
+  /** Done streaming, so its quotes can be looked for. */
+  isComplete: boolean;
   children: ReactNode;
-}
-
-interface OutputBlocksProps {
-  sourceItemId: string;
-  blocks: readonly string[];
-  renderMarkdown: (text: string) => ReactNode;
-  pending: readonly NumberedPendingComment[];
-  delivered: readonly DeliveredOutputComment[];
-}
-
-interface OutputBlockProps {
-  index: number;
-  blockText: string;
-  renderMarkdown: (text: string) => ReactNode;
-  pending: readonly NumberedPendingComment[];
-  delivered: readonly DeliveredOutputComment[];
 }
 
 interface NumberedPendingComment {
@@ -87,36 +63,21 @@ interface NumberedPendingComment {
   number: number;
 }
 
-interface CardGroup {
-  pending: NumberedPendingComment[];
-  delivered: DeliveredOutputComment[];
-}
-
-type InnerSlot = { node: number } | { item: readonly number[] };
-
-interface BlockCards {
-  afterBlock: CardGroup;
-  /** Keyed by `slotKey`, as `splitMarkdownAtSlots` reads them. */
-  afterSlots: Map<string, CardGroup>;
-}
-
-interface BlockCardsInput {
+interface OutputCommentCardsProps {
+  item: AssistantMessageItem;
+  isComplete: boolean;
   pending: readonly NumberedPendingComment[];
   delivered: readonly DeliveredOutputComment[];
-  blockText: string;
 }
 
-interface OutputCommentCardsProps {
-  cards: CardGroup;
-  blockText: string;
-  /** The list nesting the cards sit at. */
-  depth?: number;
-}
+type CardEntry =
+  | { kind: "pending"; key: string; at: number; entry: NumberedPendingComment }
+  | { kind: "delivered"; key: string; at: number; comment: DeliveredOutputComment };
 
 interface SentCommentQuote {
   comment: DeliveredOutputComment;
-  /** The output block its inline card follows. */
-  blockText: string;
+  /** The text of the reply holding it, as `replyPlainText` reads it. */
+  replyText: string;
 }
 
 interface StreamComments {
@@ -130,7 +91,6 @@ interface StreamComments {
   /** The items the delivered comments were resolved in. */
   commentTurns: readonly StreamItem[];
   viewportRef: RefObject<StreamViewportHandle | null>;
-  blocksOf: MessageBlocksOf;
 }
 
 const EMPTY_ROW_PENDING: readonly NumberedPendingComment[] = [];
@@ -142,49 +102,6 @@ function useStreamComments(): StreamComments {
   const comments = useContext(StreamCommentsContext);
   invariant(comments, "Output comments render inside OutputCommentsLayer");
   return comments;
-}
-
-function itemKey(path: readonly number[]): string {
-  return path.join(".");
-}
-
-function slotKey(slot: InnerSlot): string {
-  return "item" in slot ? `item:${itemKey(slot.item)}` : `node:${slot.node}`;
-}
-
-function emptyGroup(): CardGroup {
-  return { pending: [], delivered: [] };
-}
-
-/**
- * A card goes after the list item its quote ends in, else after the top-level node it ends in,
- * else after the block.
- */
-function placeCards({ pending, delivered, blockText }: BlockCardsInput): BlockCards {
-  const cards: BlockCards = { afterBlock: emptyGroup(), afterSlots: new Map() };
-  let itemNodes: ReadonlyMap<string, number> | null = null;
-  let nodes: TopLevelNodes | null = null;
-  function slotFor(anchor: QuoteAnchor): InnerSlot | null {
-    if (anchor.endItem !== undefined) {
-      itemNodes ??= listItemPaths(blockText);
-      // A card after an item the block doesn't have would never render.
-      if (itemNodes.has(itemKey(anchor.endItem))) return { item: anchor.endItem };
-    }
-    nodes ??= readTopLevelNodes(blockText);
-    const node = quoteEndNode(nodes, anchor);
-    return node === null ? null : { node };
-  }
-  function groupFor(anchor: QuoteAnchor): CardGroup {
-    const slot = slotFor(anchor);
-    if (!slot) return cards.afterBlock;
-    const key = slotKey(slot);
-    const group = cards.afterSlots.get(key) ?? emptyGroup();
-    cards.afterSlots.set(key, group);
-    return group;
-  }
-  for (const entry of pending) groupFor(entry.comment).pending.push(entry);
-  for (const comment of delivered) groupFor(comment).delivered.push(comment);
-  return cards;
 }
 
 function isSameComments(
@@ -199,16 +116,6 @@ function isSameComments(
 
 function isAssistantMessage(item: StreamItem): item is AssistantMessageItem {
   return item.kind === "assistant_message";
-}
-
-const messageBlocks = new WeakMap<AssistantMessageItem, MessageBlocks>();
-
-function blocksOfMessage(item: AssistantMessageItem): MessageBlocks {
-  const cached = messageBlocks.get(item);
-  if (cached) return cached;
-  const blocks = splitMarkdownBlocks(item.text);
-  messageBlocks.set(item, blocks);
-  return blocks;
 }
 
 /**
@@ -283,11 +190,6 @@ export function OutputCommentsLayer({
     moveReloadedSources(draftKey, assistants);
   }, [canPublish, draftKey, items, setLoaded]);
   const { items: commentTurns, delivered } = useDeliveredTurns(items);
-  // Stable: the highlights would otherwise repaint on every streamed chunk.
-  const blocksOf = useStableEvent((sourceItemId: string): MessageBlocks => {
-    const source = items.find((item) => item.id === sourceItemId);
-    return source?.kind === "assistant_message" ? blocksOfMessage(source) : [];
-  });
   const comments = useMemo(
     (): StreamComments => ({
       draftKey,
@@ -298,32 +200,14 @@ export function OutputCommentsLayer({
       delivered,
       commentTurns,
       viewportRef,
-      blocksOf,
     }),
-    [
-      agentId,
-      blocksOf,
-      commentTurns,
-      delivered,
-      draftKey,
-      pendingBySource,
-      serverId,
-      surfaceId,
-      viewportRef,
-    ],
+    [agentId, commentTurns, delivered, draftKey, pendingBySource, serverId, surfaceId, viewportRef],
   );
   return (
     <StreamCommentsContext.Provider value={comments}>
       <OutputCaretLayer viewportRef={viewportRef}>{children}</OutputCaretLayer>
-      <OutputCommentHighlights
-        surfaceId={surfaceId}
-        pending={pending}
-        delivered={delivered}
-        blocksOf={blocksOf}
-      />
-      {composer ? (
-        <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} blocksOf={blocksOf} />
-      ) : null}
+      <OutputCommentHighlights surfaceId={surfaceId} pending={pending} delivered={delivered} />
+      {composer ? <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} /> : null}
     </StreamCommentsContext.Provider>
   );
 }
@@ -341,227 +225,123 @@ export function useSentCommentQuote(key: string): SentCommentQuote | null {
       if (!comment) continue;
       const source = commentTurns.find((item) => item.id === comment.sourceItemId);
       if (source?.kind !== "assistant_message") return null;
-      const blockText = splitMarkdownBlocks(source.text)[comment.endBlock];
-      return blockText === undefined ? null : { comment, blockText };
+      return { comment, replyText: replyTextOf(source) };
     }
     return null;
   }, [commentTurns, delivered, key]);
 }
 
 /**
- * Renders the reply's blocks with the cards of comments on it, each after the node or list item its
- * quote ends in. Web renders every reply by block, so a selection can tell its block; native keeps
- * a reply without cards one text, which its selection needs.
+ * The reply renders whole, as one Markdown text, and the cards of the comments on it follow it.
+ * Their quotes are found in the text rather than marked in it, so a reply without comments costs
+ * nothing.
  */
-export function OutputCommentsMessage({ sourceItemId, children }: OutputCommentsMessageProps) {
+export function OutputCommentsMessage({ item, isComplete, children }: OutputCommentsMessageProps) {
   const { pendingBySource, delivered } = useStreamComments();
-  const pending = pendingBySource.get(sourceItemId) ?? EMPTY_ROW_PENDING;
-  const sourceDelivered = delivered.get(sourceItemId) ?? EMPTY_ROW_DELIVERED;
+  const pending = pendingBySource.get(item.id) ?? EMPTY_ROW_PENDING;
+  const sourceDelivered = delivered.get(item.id) ?? EMPTY_ROW_DELIVERED;
   const hasCards = pending.length > 0 || sourceDelivered.length > 0;
-  const renderBlocks = useMemo((): RenderMarkdownBlocks | null => {
-    if (!isWeb && !hasCards) return null;
-    return ({ blocks, renderMarkdown }) => (
-      <OutputBlocks
-        sourceItemId={sourceItemId}
-        blocks={blocks}
-        renderMarkdown={renderMarkdown}
-        pending={pending}
-        delivered={sourceDelivered}
-      />
-    );
-  }, [hasCards, pending, sourceDelivered, sourceItemId]);
   return (
-    <MarkdownBlocksContext.Provider value={renderBlocks}>{children}</MarkdownBlocksContext.Provider>
-  );
-}
-
-/**
- * Comments on blocks not rendered yet (still revealing, or past the render cap) follow the last
- * rendered block, as their own cards: their quotes are placed in their blocks once those render.
- */
-function OutputBlocks({
-  sourceItemId,
-  blocks,
-  renderMarkdown,
-  pending,
-  delivered,
-}: OutputBlocksProps) {
-  const { blocksOf } = useStreamComments();
-  const byBlock = useMemo(() => {
-    const groups = new Map<number, CardGroup>();
-    const groupAt = (endBlock: number) => {
-      const group = groups.get(endBlock) ?? emptyGroup();
-      groups.set(endBlock, group);
-      return group;
-    };
-    for (const entry of pending) groupAt(entry.comment.endBlock).pending.push(entry);
-    for (const comment of delivered) groupAt(comment.endBlock).delivered.push(comment);
-    return groups;
-  }, [delivered, pending]);
-  const unrendered = [...byBlock].filter(([endBlock]) => endBlock >= blocks.length);
-  return (
-    <MarkdownBlockStack>
-      {blocks.map((blockText, index) => (
-        <OutputBlock
-          // oxlint-disable-next-line react/no-array-index-key -- a block is its index in the reply
-          key={index}
-          index={index}
-          blockText={blockText}
-          renderMarkdown={renderMarkdown}
-          pending={byBlock.get(index)?.pending ?? EMPTY_ROW_PENDING}
-          delivered={byBlock.get(index)?.delivered ?? EMPTY_ROW_DELIVERED}
-        />
-      ))}
-      {unrendered.map(([endBlock, group]) => (
-        <OutputCommentCards
-          key={`unrendered:${endBlock}`}
-          cards={group}
-          blockText={blocksOf(sourceItemId)[endBlock] ?? ""}
-        />
-      ))}
-    </MarkdownBlockStack>
-  );
-}
-
-/** A nested list's continuation, indented as its list and telling selections where its items are. */
-function ContinuedPiece({
-  piece,
-  continues,
-  children,
-}: {
-  piece: MarkdownPiece;
-  continues: NonNullable<MarkdownPiece["continues"]>;
-  children: ReactNode;
-}) {
-  const dataSet = useMemo(
-    () => ({
-      [OUTPUT_ITEM_PARENT_DATASET_KEY]: continues.parent.join("."),
-      [OUTPUT_ITEM_START_DATASET_KEY]: String(continues.start),
-    }),
-    [continues],
-  );
-  return (
-    <View style={styles.indent(piece.depth)} dataSet={dataSet}>
+    <>
       {children}
-    </View>
+      {hasCards ? (
+        <OutputCommentCards
+          item={item}
+          isComplete={isComplete}
+          pending={pending}
+          delivered={sourceDelivered}
+        />
+      ) : null}
+    </>
   );
 }
 
-function slotKeysOf(piece: MarkdownPiece): string[] {
-  return piece.slots.map((slot) => slot.key);
+function positionIn(replyText: string | null, anchor: QuoteAnchor): number {
+  const match = replyText === null ? null : locateQuote(replyText, anchor);
+  return match?.start ?? Number.POSITIVE_INFINITY;
 }
 
-const OutputBlock = memo(function OutputBlock({
-  index,
-  blockText,
-  renderMarkdown,
+/** In the order their quotes read in the reply; those it doesn't hold go last. */
+function orderCards(
+  replyText: string | null,
+  pending: readonly NumberedPendingComment[],
+  delivered: readonly DeliveredOutputComment[],
+): CardEntry[] {
+  const entries: CardEntry[] = [
+    ...delivered.map(
+      (comment): CardEntry => ({
+        kind: "delivered",
+        key: comment.key,
+        at: positionIn(replyText, comment),
+        comment,
+      }),
+    ),
+    ...pending.map(
+      (entry): CardEntry => ({
+        kind: "pending",
+        key: entry.comment.id,
+        at: positionIn(replyText, entry.comment),
+        entry,
+      }),
+    ),
+  ];
+  return entries.sort((a, b) => a.at - b.at);
+}
+
+const OutputCommentCards = memo(function OutputCommentCards({
+  item,
+  isComplete,
   pending,
   delivered,
-}: OutputBlockProps) {
+}: OutputCommentCardsProps) {
+  const { draftKey, serverId, agentId, surfaceId } = useStreamComments();
+  const composer = useOutputCommentsComposer();
+  // A streaming reply isn't read until it is done; its cards show their quotes as written.
+  const replyText = useMemo(() => (isComplete ? replyTextOf(item) : null), [isComplete, item]);
+  const shownPending = composer ? pending : EMPTY_ROW_PENDING;
   const cards = useMemo(
-    () => placeCards({ pending, delivered, blockText }),
-    [blockText, delivered, pending],
+    () => orderCards(replyText, shownPending, delivered),
+    [delivered, replyText, shownPending],
   );
-  const pieces = useMemo(
-    () => splitMarkdownAtSlots(blockText, new Set(cards.afterSlots.keys())),
-    [blockText, cards],
-  );
-  // A slot the split didn't find still shows its cards, after the block.
-  const afterBlock = useMemo(() => {
-    const placed = new Set(pieces.flatMap(slotKeysOf));
-    const unplaced = [...cards.afterSlots].filter(([key]) => !placed.has(key));
-    if (unplaced.length === 0) return cards.afterBlock;
-    const groups = [cards.afterBlock, ...unplaced.map(([, group]) => group)];
-    return {
-      pending: groups.flatMap((group) => group.pending),
-      delivered: groups.flatMap((group) => group.delivered),
-    };
-  }, [cards, pieces]);
-  const dataSet = useMemo(() => ({ [OUTPUT_BLOCK_DATASET_KEY]: String(index) }), [index]);
+  if (cards.length === 0) return null;
+  // Marked as no part of the output: copy and find skip them.
   return (
-    <View dataSet={dataSet}>
-      <MarkdownBlockStack>
-        {pieces.map((piece) => (
-          <Fragment key={piece.key}>
-            {piece.continues ? (
-              <ContinuedPiece piece={piece} continues={piece.continues}>
-                {renderMarkdown(piece.text)}
-              </ContinuedPiece>
-            ) : (
-              renderMarkdown(piece.text)
-            )}
-            {piece.slots.map((slot) => {
-              const group = cards.afterSlots.get(slot.key);
-              return group ? (
-                <OutputCommentCards
-                  key={slot.key}
-                  cards={group}
-                  blockText={blockText}
-                  depth={slot.depth}
-                />
-              ) : null;
-            })}
-          </Fragment>
-        ))}
-        <OutputCommentCards cards={afterBlock} blockText={blockText} />
-      </MarkdownBlockStack>
+    <View
+      style={styles.container}
+      dataSet={markdownCopyDataSet.ignore}
+      testID="output-comment-rows"
+    >
+      {cards.map((card) => {
+        if (card.kind === "delivered") {
+          return (
+            <DeliveredOutputCommentCard
+              key={card.key}
+              surfaceId={surfaceId}
+              comment={card.comment}
+              replyText={replyText}
+            />
+          );
+        }
+        return composer ? (
+          <PendingOutputCommentCard
+            key={card.key}
+            draftKey={draftKey}
+            serverId={serverId}
+            agentId={agentId}
+            comment={card.entry.comment}
+            number={card.entry.number}
+            replyText={replyText}
+            composer={composer}
+          />
+        ) : null;
+      })}
     </View>
   );
 });
 
-function OutputCommentCards({ cards, blockText, depth = 0 }: OutputCommentCardsProps) {
-  const { draftKey, serverId, agentId, surfaceId, blocksOf } = useStreamComments();
-  const composer = useOutputCommentsComposer();
-  const hasPending = composer !== null && cards.pending.length > 0;
-  if (!hasPending && cards.delivered.length === 0) return null;
-  // Marked as no part of the output, since cards can sit inside it: copy and find skip them.
-  return (
-    <View
-      style={depth > 0 ? [styles.container, styles.indent(depth)] : styles.container}
-      dataSet={markdownCopyDataSet.ignore}
-      testID="output-comment-rows"
-    >
-      {cards.delivered.map((comment) => (
-        <DeliveredOutputCommentCard
-          key={comment.key}
-          surfaceId={surfaceId}
-          comment={comment}
-          blockText={blockText}
-          blocksOf={blocksOf}
-        />
-      ))}
-      {composer
-        ? cards.pending.map(({ comment, number }) => (
-            <PendingOutputCommentCard
-              key={comment.id}
-              draftKey={draftKey}
-              serverId={serverId}
-              agentId={agentId}
-              comment={comment}
-              number={number}
-              blockText={blockText}
-              blocksOf={blocksOf}
-              composer={composer}
-            />
-          ))
-        : null}
-    </View>
-  );
-}
-
-/** `data-output-block`, the block index a reply's block container carries. */
-const OUTPUT_BLOCK_DATASET_KEY = "outputBlock";
-/** `data-output-item-parent` and `-start`, read by `endItemPath` in `selection.web.ts`. */
-const OUTPUT_ITEM_PARENT_DATASET_KEY = "outputItemParent";
-const OUTPUT_ITEM_START_DATASET_KEY = "outputItemStart";
-// ponytail: the list indent of `createMarkdownStyles` (`list.marginLeft`); read it if that varies.
-const LIST_INDENT = 20;
-
 const styles = StyleSheet.create((theme) => ({
   container: {
     gap: theme.spacing[2],
+    marginTop: theme.spacing[2],
   },
-  indent: (depth: number) => ({
-    marginLeft: depth * LIST_INDENT,
-  }),
 }));

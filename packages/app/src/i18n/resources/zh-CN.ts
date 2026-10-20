@@ -2033,6 +2033,7 @@ export const zhCN: TranslationResources = {
     placeholder: "添加评论",
     remove: "移除评论",
     sentLabel: "已发送的评论",
+    unresolved: "未找到引用：{{quote}}",
     composerTitle: "对回复的评论",
     show: "显示评论",
     hide: "隐藏评论",

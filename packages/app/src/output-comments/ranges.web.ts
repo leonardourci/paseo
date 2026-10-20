@@ -1,25 +1,20 @@
-import { findRenderedMatches } from "@/agent-stream/chat-find/ranges.web";
+import { findRenderedQuote } from "@/agent-stream/chat-find/ranges.web";
 import type { QuoteAnchor } from "./fence";
-import { messageRowsByBlock, quotePiecesInRows } from "./selection.web";
-import type { MessageBlocks } from "./types";
+import { pickOccurrence, quotePlainText } from "./match";
+import { findReplies } from "./selection.web";
 
-interface QuoteRangesInput {
+interface QuoteRangeInput {
   root: HTMLElement;
   anchor: QuoteAnchor;
-  blocks: MessageBlocks;
 }
 
-export function rangesForQuote({ root, anchor, blocks }: QuoteRangesInput): Range[] {
-  const rowsByBlock = messageRowsByBlock(root, anchor.sourceItemId);
-  const ranges: Range[] = [];
-  const pieces = quotePiecesInRows({ rows: rowsByBlock, anchor, blocks });
-  for (const [offset, piece] of pieces.entries()) {
-    const row = rowsByBlock.get(anchor.startBlock + offset);
-    if (!row) continue;
-    const matches = findRenderedMatches(row, piece, { mode: "quote" });
-    const occurrence = offset === 0 ? anchor.occurrence : 0;
-    const match = matches[occurrence] ?? matches[0];
-    if (match) ranges.push(match);
+/** The quote's text in its rendered, complete reply, or null while that reply lacks it. */
+export function rangeForQuote({ root, anchor }: QuoteRangeInput): Range | null {
+  const quote = quotePlainText(anchor);
+  for (const reply of findReplies(root, anchor.sourceItemId)) {
+    const { text, matches } = findRenderedQuote(reply, quote);
+    const match = matches[pickOccurrence(text, matches, anchor)];
+    if (match) return match.range;
   }
-  return ranges;
+  return null;
 }

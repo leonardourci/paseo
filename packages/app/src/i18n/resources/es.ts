@@ -2103,6 +2103,7 @@ export const es: TranslationResources = {
     placeholder: "Agrega un comentario",
     remove: "Quitar comentario",
     sentLabel: "Comentario enviado",
+    unresolved: "No se encontró la cita: {{quote}}",
     composerTitle: "Comentarios sobre la respuesta",
     show: "Mostrar comentarios",
     hide: "Ocultar comentarios",

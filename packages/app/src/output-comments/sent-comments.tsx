@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { isWeb } from "@/constants/platform";
 import { QuoteLine, cardStyles } from "./card";
 import type { ParsedOutputComment } from "./fence";
-import { deliveredCommentKey, quotePlainText } from "./match";
+import { deliveredCommentKey } from "./match";
 import { useSentCommentQuote, useStreamViewportRef } from "./stream";
 
 interface SentOutputCommentsProps {
@@ -80,23 +80,9 @@ function SentCommentCard({ itemId, comment }: SentCommentCardProps) {
   const sent = useSentCommentQuote(deliveredCommentKey(itemId, comment.position));
   return (
     <View style={[cardStyles.card, cardStyles.delivered]}>
-      {sent === null ? (
-        <PlainQuoteLine comment={comment} />
-      ) : (
-        <QuoteLine blockText={sent.blockText} anchor={sent.comment} />
-      )}
+      <QuoteLine replyText={sent?.replyText ?? null} anchor={sent?.comment ?? comment} />
       <Text style={cardStyles.note}>{comment.note}</Text>
     </View>
-  );
-}
-
-function PlainQuoteLine({ comment }: Pick<SentCommentCardProps, "comment">) {
-  const quote = useMemo(() => quotePlainText(comment), [comment]);
-  if (!quote) return null;
-  return (
-    <Text numberOfLines={1} ellipsizeMode="tail" style={cardStyles.quoteLine}>
-      {quote}
-    </Text>
   );
 }
 

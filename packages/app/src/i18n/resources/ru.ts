@@ -2088,6 +2088,7 @@ export const ru: TranslationResources = {
     placeholder: "Добавить комментарий",
     remove: "Удалить комментарий",
     sentLabel: "Отправленный комментарий",
+    unresolved: "Цитата не найдена: {{quote}}",
     composerTitle: "Комментарии к ответу",
     show: "Показать комментарии",
     hide: "Скрыть комментарии",

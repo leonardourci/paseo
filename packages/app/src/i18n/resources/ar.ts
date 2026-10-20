@@ -2055,6 +2055,7 @@ export const ar: TranslationResources = {
     placeholder: "أضف تعليقا",
     remove: "إزالة التعليق",
     sentLabel: "تعليق مرسل",
+    unresolved: "لم يُعثر على الاقتباس: {{quote}}",
     composerTitle: "تعليقات على الرد",
     show: "إظهار التعليقات",
     hide: "إخفاء التعليقات",

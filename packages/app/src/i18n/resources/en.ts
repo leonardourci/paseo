@@ -2080,6 +2080,7 @@ export const en = {
     placeholder: "Add a comment",
     remove: "Remove comment",
     sentLabel: "Sent comment",
+    unresolved: "Quote not found: {{quote}}",
     composerTitle: "Comments on the output",
     show: "Show comments",
     hide: "Hide comments",

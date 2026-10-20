@@ -2065,6 +2065,7 @@ export const ko: TranslationResources = {
     placeholder: "댓글 추가",
     remove: "댓글 제거",
     sentLabel: "보낸 댓글",
+    unresolved: "인용을 찾을 수 없음: {{quote}}",
     composerTitle: "답변에 대한 댓글",
     show: "댓글 표시",
     hide: "댓글 숨기기",

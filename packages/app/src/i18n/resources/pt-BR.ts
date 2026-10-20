@@ -2088,6 +2088,7 @@ export const ptBR: TranslationResources = {
     placeholder: "Adicione um comentário",
     remove: "Remover comentário",
     sentLabel: "Comentário enviado",
+    unresolved: "Citação não encontrada: {{quote}}",
     composerTitle: "Comentários na resposta",
     show: "Mostrar comentários",
     hide: "Ocultar comentários",

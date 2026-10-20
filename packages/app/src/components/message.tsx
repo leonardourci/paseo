@@ -8,7 +8,6 @@ import {
   AttachmentThumbnail,
 } from "@/components/attachment-pill";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
-import { useMarkdownBlocks } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
@@ -398,6 +397,8 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
 }
 
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
+// Output comments look for their quotes only once a reply is done streaming.
+const STREAMING_MESSAGE_TEXT_DATASET = { ...MESSAGE_TEXT_DATASET, messageStreaming: "true" };
 
 export const UserMessage = memo(function UserMessage({
   serverId,
@@ -1199,35 +1200,21 @@ export const AssistantMessage = memo(function AssistantMessage({
     ],
     [spacing],
   );
-  const revealDataSet = useMemo(
-    () =>
-      isRenderProfileEnabled()
-        ? {
-            ...MESSAGE_TEXT_DATASET,
-            revealKey: occurrenceKey,
-            revealLength: String(revealedMessage.length),
-          }
-        : MESSAGE_TEXT_DATASET,
-    [occurrenceKey, revealedMessage.length],
-  );
+  const isStreaming = phase !== "complete" || revealedMessage.length < renderedMessage.text.length;
+  const revealDataSet = useMemo(() => {
+    const messageText = isStreaming ? STREAMING_MESSAGE_TEXT_DATASET : MESSAGE_TEXT_DATASET;
+    return isRenderProfileEnabled()
+      ? {
+          ...messageText,
+          revealKey: occurrenceKey,
+          revealLength: String(revealedMessage.length),
+        }
+      : messageText;
+  }, [isStreaming, occurrenceKey, revealedMessage.length]);
 
   const measureMessage = useStableEvent((event: import("react-native").LayoutChangeEvent) => {
     setAssistantMessageHeight({ markdown: revealedMessage, ...event.nativeEvent.layout });
   });
-  const isStreaming = phase !== "complete" || revealedMessage.length < renderedMessage.text.length;
-  const renderMarkdown = useCallback(
-    (text: string) => (
-      <MarkdownRenderer
-        text={text}
-        streaming={isStreaming}
-        client={client}
-        workspaceRoot={workspaceRoot}
-        serverId={serverId}
-      />
-    ),
-    [client, isStreaming, serverId, workspaceRoot],
-  );
-  const byBlock = useMarkdownBlocks(revealedMessage, renderMarkdown);
   return (
     <View
       testID="assistant-message"
@@ -1235,7 +1222,13 @@ export const AssistantMessage = memo(function AssistantMessage({
       style={assistantContainerStyle}
       onLayout={measureMessage}
     >
-      {byBlock ?? renderMarkdown(revealedMessage)}
+      <MarkdownRenderer
+        text={revealedMessage}
+        streaming={isStreaming}
+        client={client}
+        workspaceRoot={workspaceRoot}
+        serverId={serverId}
+      />
       {fullMessageByteLength !== null ? (
         <Text
           testID="assistant-message-capped-notice"

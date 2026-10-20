@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, type MouseEvent } from "react";
+import { findMessageRows } from "@/agent-stream/chat-find/ranges.web";
 import { useTranslation } from "react-i18next";
 import { View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -19,11 +20,7 @@ import { registerDictationSurface, type FocusedNote } from "./dictation";
 import type { QuoteAnchor } from "./fence";
 import { attachNoteImage } from "./note-images.web";
 import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
-import {
-  messageRowsByBlock,
-  readCommentableSelection,
-  type CommentableSelection,
-} from "./selection.web";
+import { readCommentableSelection, type CommentableSelection } from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 import { CONTROL, PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import type { OutputCommentSelectionLayerProps } from "./types";
@@ -106,7 +103,6 @@ function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
 export function OutputCommentSelectionLayer({
   draftKey,
   composer,
-  blocksOf,
 }: OutputCommentSelectionLayerProps) {
   const { t } = useTranslation();
   const { isInteractive } = usePaneFocus();
@@ -130,10 +126,8 @@ export function OutputCommentSelectionLayer({
 
   const readSelection = useCallback((): CommentableSelection | null => {
     const root = surfaceRoot();
-    return root
-      ? readCommentableSelection({ selection: window.getSelection(), root, blocksOf })
-      : null;
-  }, [blocksOf, surfaceRoot]);
+    return root ? readCommentableSelection({ selection: window.getSelection(), root }) : null;
+  }, [surfaceRoot]);
 
   const clear = useCallback(() => {
     isShownRef.current = false;
@@ -204,10 +198,8 @@ export function OutputCommentSelectionLayer({
     const focusingNote = {
       draftKey,
       surfaceId,
-      isCardRowRendered: ({ sourceItemId, endBlock }: QuoteAnchor) => {
-        const root = surfaceRoot();
-        return root !== null && messageRowsByBlock(root, sourceItemId).has(endBlock);
-      },
+      isCardRowRendered: ({ sourceItemId }: QuoteAnchor) =>
+        findMessageRows(surfaceRoot(), sourceItemId).length > 0,
     };
     const onCaretEnter = (event: KeyboardEvent): boolean => {
       if (document.activeElement?.closest(CONTROL)) return false;

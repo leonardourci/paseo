@@ -2076,6 +2076,7 @@ export const ja: TranslationResources = {
     placeholder: "コメントを追加",
     remove: "コメントを削除",
     sentLabel: "送信済みのコメント",
+    unresolved: "引用が見つかりません: {{quote}}",
     composerTitle: "返答へのコメント",
     show: "コメントを表示",
     hide: "コメントを非表示",

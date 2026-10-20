@@ -114,19 +114,27 @@ export const EMPTY_PENDING_COMMENTS: readonly PendingOutputComment[] = [];
 
 const STORE_VERSION = 1;
 
-const PendingOutputCommentSchema: z.ZodType<PendingOutputComment> = z.strictObject({
-  id: z.string(),
-  sourceItemId: z.string(),
-  startBlock: z.number().int().nonnegative(),
-  endBlock: z.number().int().nonnegative(),
-  quote: z.string(),
-  occurrence: z.number().int().nonnegative(),
-  isCode: z.boolean(),
-  endItem: z.array(z.number().int().nonnegative()).optional(),
-  note: z.string(),
-  // Comments saved before notes held images have none.
-  imageIds: z.array(z.string()).default([]),
-});
+const PendingOutputCommentSchema: z.ZodType<PendingOutputComment> = z
+  .strictObject({
+    id: z.string(),
+    sourceItemId: z.string(),
+    quote: z.string(),
+    occurrence: z.number().int().nonnegative(),
+    isCode: z.boolean(),
+    prefix: z.string().optional(),
+    suffix: z.string().optional(),
+    note: z.string(),
+    // Comments saved before notes held images have none.
+    imageIds: z.array(z.string()).default([]),
+    // Comments saved before quotes anchored to the whole reply also name its blocks.
+    startBlock: z.number().int().nonnegative().optional(),
+    endBlock: z.number().int().nonnegative().optional(),
+    endItem: z.array(z.number().int().nonnegative()).optional(),
+  })
+  .transform(({ startBlock, endBlock: _endBlock, endItem: _endItem, ...comment }) =>
+    // Their occurrence counts within the start block, which is the reply's count only in the first.
+    (startBlock ?? 0) > 0 ? { ...comment, occurrence: 0 } : comment,
+  );
 
 const PersistedOutputCommentsSchema: z.ZodType<PersistedOutputComments> = z.strictObject({
   drafts: z.record(z.string(), z.array(PendingOutputCommentSchema)),
@@ -160,7 +168,6 @@ function indexOfSameText(pending: readonly PendingOutputComment[], target: Quote
   return pending.findIndex(
     (comment) =>
       comment.sourceItemId === target.sourceItemId &&
-      comment.startBlock === target.startBlock &&
       comment.occurrence === target.occurrence &&
       comment.quote.trim() === quote,
   );
