@@ -6,7 +6,7 @@ Native selection belongs to the library's text view. Keep an assistant message i
 
 ## Output comments
 
-Output comments anchor a quote to a reply's Markdown blocks (`splitMarkdownBlocks`), and a sent message stores those block indexes, so keep that splitter's behavior. On web the chat renders each block as its own library text, which lets a selection tell its block; selection still crosses blocks there. A comment card goes after the paragraph, node or list item its quote ends in. The library has no hook inside its text, so the block's source is split at that point (`output-comments/split.ts`) and the continuation keeps its list numbering, dedented and indented for a nested item. Native renders a reply as one text unless it carries cards, then by block like web; native selection stops at a card.
+Output comments never split or mark up a reply: it stays one row and one library text on every platform. A comment anchors to its exact quote in the whole reply, plus a little of the text around it, so a reply whose quote is gone shows the comment as unresolved instead of moving it to other words. Web finds the quote in the rendered text and paints it with the CSS Custom Highlight API, which adds no elements; the cards follow the reply. Quotes are looked for only in replies that have comments and are done streaming (`data-message-streaming`). A sent message stores the quote, its occurrence in the reply and which reply back it came from, never a block or offset; fences sent before this with a `block=` index still read, by their quote.
 
 ## Block spacing
 
