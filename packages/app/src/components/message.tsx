@@ -7,6 +7,7 @@ import {
   AttachmentLabel,
   AttachmentThumbnail,
 } from "@/components/attachment-pill";
+import { referenceDefinitionsOf } from "@/components/markdown/fence/mermaid/segments";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
 import { MarkdownBlocksContext } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -1234,6 +1235,15 @@ export const AssistantMessage = memo(function AssistantMessage({
     () => (isByBlock ? splitMarkdownBlocks(revealedMessage) : null),
     [isByBlock, revealedMessage],
   );
+  // A block renders on its own, so it leads with the reply's definitions to keep its references.
+  const definitions = useMemo(
+    () => (isByBlock ? referenceDefinitionsOf(revealedMessage) : ""),
+    [isByBlock, revealedMessage],
+  );
+  const renderBlockMarkdown = useCallback(
+    (text: string) => renderMarkdown(definitions ? `${definitions}\n\n${text}` : text),
+    [definitions, renderMarkdown],
+  );
   return (
     <View
       testID="assistant-message"
@@ -1242,7 +1252,7 @@ export const AssistantMessage = memo(function AssistantMessage({
       onLayout={measureMessage}
     >
       {renderBlocks && blocks
-        ? renderBlocks({ blocks, renderMarkdown })
+        ? renderBlocks({ blocks, renderMarkdown: renderBlockMarkdown })
         : renderMarkdown(revealedMessage)}
       {fullMessageByteLength !== null ? (
         <Text

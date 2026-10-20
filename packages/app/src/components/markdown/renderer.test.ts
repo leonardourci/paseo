@@ -315,6 +315,28 @@ it("keeps reference links available across native Mermaid boundaries", async () 
     expect(part.source).toContain("[file]: <src/file.ts>");
 });
 
+it("keeps a reply's reference links resolving in a block rendered on its own", async () => {
+  const { referenceDefinitionsOf } = await import("./fence/mermaid/segments");
+  const { splitMarkdownBlocks } = await import("@/utils/split-markdown-blocks");
+  const reply = "See [docs][1].\n\nMore text.\n\n[1]: https://x.test/docs";
+  const linkUrls = async (markdown: string) => {
+    const urls: unknown[] = [];
+    const collect = (node: ASTNode) => {
+      if (node.type === "Link") urls.push(node.attributes?.url);
+      node.children?.forEach(collect);
+    };
+    collect(await parseMarkdown(markdown, { hardSoftBreaks: true, latexMath: false }));
+    return urls;
+  };
+  const [first] = splitMarkdownBlocks(reply);
+  expect(first).toBe("See [docs][1].");
+  expect(await linkUrls(first!)).toEqual([]);
+  expect(await linkUrls(`${referenceDefinitionsOf(reply)}\n\n${first}`)).toEqual([
+    "https://x.test/docs",
+  ]);
+  expect(referenceDefinitionsOf("No [references] here.")).toBe("");
+});
+
 it("recognizes mixed-case Mermaid fence info and incomplete streaming fences", async () => {
   const { splitMermaidFences } = await import("./fence/mermaid/segments");
   expect(splitMermaidFences("```Mermaid title\ngraph TD\nA-->B")).toEqual([

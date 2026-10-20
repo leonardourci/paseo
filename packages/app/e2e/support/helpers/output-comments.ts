@@ -311,7 +311,6 @@ export async function commentOn(
   await page.keyboard.type(note.slice(1));
 }
 
-/** Where each card renders, in page order, by the text around its group of cards. */
 /**
  * What each card follows and precedes in its Markdown block: the first text of the item or node
  * holding the nearest text before it, and after it.
