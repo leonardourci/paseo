@@ -90,6 +90,25 @@ it("matches across list items in quote mode", () => {
   ).toEqual(["itemsecond"]);
 });
 
+it("matches across semantic list items in quote mode", () => {
+  const row = content("<ul><li>first item</li><li>second item</li></ul>");
+  expect(findRenderedMatches(row, "item second")).toEqual([]);
+  expect(
+    findRenderedMatches(row, "item second", { mode: "quote" }).map((range) => range.toString()),
+  ).toEqual(["itemsecond"]);
+});
+
+it("searches one block of a message's text on its own", () => {
+  const row = content("<p>one needle</p><p>two needle</p>");
+  const block = row.querySelector("p")!;
+  expect(findRenderedMatches(block, "needle", { mode: "quote" })).toHaveLength(1);
+});
+
+it("reads a line break as whitespace in quote mode", () => {
+  const row = content("<p>Status: ok<br>Next: deploy</p>");
+  expect(findRenderedMatches(row, "ok Next", { mode: "quote" }).map(String)).toEqual(["okNext"]);
+});
+
 it("finds overlapping occurrences in quote mode", () => {
   const row = content('<div data-paseo-markdown-tag="p">aaa</div>');
   expect(findRenderedMatches(row, "aa").map(offsetAndText)).toEqual([[0, "aa"]]);

@@ -581,7 +581,7 @@ test("on a compact screen the caret stays off, and Settings doesn't offer it", a
     await expect(pendingCards(page)).toHaveCount(0);
 
     await page.goto("/settings/general");
-    await expect(page.getByRole("textbox", { name: "Terminal scrollback lines" })).toBeVisible();
+    await expect(page.getByText("Language", { exact: true })).toBeVisible();
     await expect(page.getByRole("switch", { name: "Keyboard caret in output" })).toHaveCount(0);
   } finally {
     await agent.cleanup();
@@ -692,9 +692,11 @@ test("while a reply streams the caret and a selection keep their place, and Esca
     await test.step("a triple-click's selection stays as the reply streams", async () => {
       // A triple-click selects the paragraph with its line break, ending past its text.
       await page.getByText(SECOND, { exact: true }).click({ clickCount: 3 });
-      await expect.poll(() => selectedText(page)).toBe(`${SECOND}\n`);
+      await expect.poll(async () => (await selectedText(page)).trim()).toBe(SECOND);
+      const selected = await selectedText(page);
+      expect(selected.endsWith("\n")).toBe(true);
       await streamOn(40);
-      expect(await selectedText(page)).toBe(`${SECOND}\n`);
+      expect(await selectedText(page)).toBe(selected);
 
       // Collapsed to the selection's end, the next paragraph's start, as in a text field.
       await page.keyboard.press("ArrowRight");

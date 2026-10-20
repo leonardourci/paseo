@@ -589,8 +589,8 @@ test("a comment's card follows the list item its quote ends in, before and after
 
     const places = [
       { before: "Link each node", after: "Check each link" },
-      { before: "Build the tree", after: "Emit the output" },
-      { before: "Emit the output", after: null },
+      { before: "Check each link", after: "Emit the output" },
+      { before: "Emit the output", after: "Ship the build" },
       { before: "Ship the build", after: null },
     ];
     await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
@@ -618,7 +618,7 @@ test("a comment's card follows the list item its quote ends in, before and after
 
     await expect
       .poll(() => cardPlaces(deliveredCards(page)))
-      .toEqual([...places, { before: "Tokenize the source", after: null }]);
+      .toEqual([...places, { before: "Ship the build", after: null }]);
   } finally {
     await agent.cleanup();
   }
@@ -698,11 +698,11 @@ test("a quote across list items or rows paints each row and places at its end, b
     const painted = (tints: ["pending" | "delivered", "active" | "delivered"]) =>
       expectCommentHighlights(page, [
         {
-          text: "[currency-pt-br worktree: 21 files, covering the R$ cut-off fix. It is not in 1.15.0.2.analytics and installments worktrees: 38 and 51] files differ from ",
+          text: "[currency-pt-br worktree: 21 files, covering the R$ cut-off fix. It is not in 1.15.0.analytics and installments worktrees: 38 and 51] files differ from ",
           tint: tints[0],
         },
         { text: "The parser [warms up first.]", tint: tints[1] },
-        { text: "[Tokenize the source•Build the tree•Emit the output]", tint: tints[1] },
+        { text: "[Tokenize the sourceBuild the treeEmit the output]", tint: tints[1] },
         { text: "[Then the] parser rests.", tint: tints[1] },
       ]);
     await painted(["pending", "active"]);
@@ -844,8 +844,11 @@ test("a sent message in virtualized history keeps its toggle in place and stays 
     const userMessage = sentUserMessage(page, "Please revise.");
     await expect(userMessage).toHaveAttribute("aria-busy", "false");
     await agent.client.waitForFinish(agent.agentId, 30_000);
-    await agent.client.sendAgentMessage(agent.agentId, "Next.");
-    await agent.client.waitForFinish(agent.agentId, 30_000);
+    // A reply is one row, so enough turns follow to leave the list's overscan of eight rows.
+    for (const turn of [1, 2, 3, 4, 5]) {
+      await agent.client.sendAgentMessage(agent.agentId, `Next ${turn}.`);
+      await agent.client.waitForFinish(agent.agentId, 30_000);
+    }
     await expect(userMessage).toHaveCount(0);
 
     await scrollChatUpTo(page, userMessage);

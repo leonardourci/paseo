@@ -30,7 +30,15 @@ test.beforeEach(async ({ page }) => {
   await turnOnOutputCaretSetting(page);
 });
 
-const PROMPTS = ["Explain the parser.", "Next.", "And the last one."] as const;
+// A reply is one row: enough turns that the first leaves the list's overscan of eight rows.
+const PROMPTS = [
+  "Explain the parser.",
+  "Next.",
+  "Go on.",
+  "Keep going.",
+  "Almost there.",
+  "And the last one.",
+] as const;
 const FIRST = "The parser reads the config file before anything else.";
 const SECOND = "Then the parser checks each entry, and the parser retries.";
 const REPLY_LINES = [
@@ -127,7 +135,7 @@ test("the caret walks a long, partly rendered history up and down through every 
       await agent.client.sendAgentMessage(agent.agentId, prompt);
       await agent.client.waitForFinish(agent.agentId, 30_000);
     }
-    await expect(page.getByText(PROMPTS[2])).toBeVisible();
+    await expect(page.getByText(PROMPTS[PROMPTS.length - 1])).toBeVisible();
     await expect(page.getByText(PROMPTS[0])).toHaveCount(0);
 
     await test.step("up from the latest reply past the rows the list hasn't rendered", async () => {
@@ -138,10 +146,7 @@ test("the caret walks a long, partly rendered history up and down through every 
       });
       expect(badSteps(up, "backward")).toEqual([]);
       expect(runsOf(up, (spot) => spot.rowKind)).toEqual([
-        "user_message",
-        "assistant_message",
-        "user_message",
-        "assistant_message",
+        ...PROMPTS.slice(1).flatMap(() => ["user_message", "assistant_message"]),
         "user_message",
       ]);
       await expect(page.getByText(PROMPTS[0])).toBeInViewport();
@@ -155,10 +160,7 @@ test("the caret walks a long, partly rendered history up and down through every 
       expect(badSteps(down, "forward")).toEqual([]);
       expect(runsOf(down, (spot) => spot.text)).toEqual([
         ...REPLY_LINES,
-        PROMPTS[1],
-        ...REPLY_LINES,
-        PROMPTS[2],
-        ...REPLY_LINES,
+        ...PROMPTS.slice(1).flatMap((prompt) => Array.of<string>(prompt).concat(REPLY_LINES)),
       ]);
     });
 
