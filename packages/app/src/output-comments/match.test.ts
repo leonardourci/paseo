@@ -4,6 +4,7 @@ import { withOutputComments, type OutputComment, type QuoteAnchor } from "./fenc
 import {
   contextAround,
   findMovedCommentSource,
+  inReadingOrder,
   locateQuote,
   matchesIn,
   pickOccurrence,
@@ -181,6 +182,37 @@ describe("locateQuote", () => {
     };
     const match = locateQuote(reply, anchor);
     expect(match && reply.slice(match.start - 6, match.end + 5)).toBe("and a retry once");
+  });
+});
+
+describe("inReadingOrder", () => {
+  const items = [
+    assistant("a", "First reply, one point."),
+    assistant("b", "Opening line.\n\nLater line and the same line again."),
+  ];
+  const comment = (id: string, sourceItemId: string, quote: string, occurrence = 0) => ({
+    id,
+    sourceItemId,
+    quote,
+    occurrence,
+    isCode: false,
+  });
+
+  it("orders by reply, then by where each quote reads, whatever order they were added in", () => {
+    const added = [
+      comment("1", "b", "line", 2),
+      comment("2", "b", "Opening"),
+      comment("3", "missing", "gone"),
+      comment("4", "a", "one point"),
+      comment("5", "b", "Later line"),
+    ];
+    expect(inReadingOrder(added, items).map((entry) => entry.id)).toEqual([
+      "4",
+      "2",
+      "5",
+      "1",
+      "3",
+    ]);
   });
 });
 

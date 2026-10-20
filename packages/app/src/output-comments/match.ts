@@ -177,6 +177,33 @@ export function locateQuote(replyText: string, anchor: LocatedQuote): TextMatch 
   return matches[pickOccurrence(text, matches, anchor)] ?? null;
 }
 
+/** Reply by reply, each in the order its quotes read; those not found go last. */
+export function inReadingOrder<T extends QuoteAnchor>(
+  comments: readonly T[],
+  items: readonly StreamItem[],
+): T[] {
+  const replies = new Map<string, { index: number; item: AssistantMessageItem }>();
+  for (const [index, item] of items.entries()) {
+    if (item.kind === "assistant_message") replies.set(item.id, { index, item });
+  }
+  const at = new Map(
+    comments.map((comment) => {
+      const reply = replies.get(comment.sourceItemId);
+      const start = reply ? locateQuote(replyTextOf(reply.item), comment)?.start : undefined;
+      return [comment, [reply?.index ?? Infinity, start ?? Infinity]] as const;
+    }),
+  );
+  return [...comments].sort((a, b) => {
+    const [replyA, startA] = at.get(a) ?? [];
+    const [replyB, startB] = at.get(b) ?? [];
+    return compareAt(replyA, replyB) || compareAt(startA, startB);
+  });
+}
+
+function compareAt(a = Infinity, b = Infinity): number {
+  return a === b ? 0 : a - b;
+}
+
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }

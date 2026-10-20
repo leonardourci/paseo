@@ -576,6 +576,12 @@ test("cards follow their whole reply in the order their quotes read, before and 
     await expect(assistantMessageText(page)).toHaveCount(1);
     await expect.poll(() => cardsFollowReply(page)).toBe(true);
     await expectNotes(page, ["all passes", "why a tree?", "every node?", "then ship"]);
+    // Numbered as they read, so card N and badge N mark the same quote.
+    for (const [index, card] of (await pendingCards(page).all()).entries()) {
+      await expect(card).toHaveAttribute("aria-label", `Comment ${index + 1}`);
+    }
+    const badgeTop = async (number: number) => (await textBadge(page, number).boundingBox())?.y;
+    expect(await badgeTop(1)).toBeLessThan((await badgeTop(4)) ?? 0);
 
     await fillComposerDraft(page, "Please revise.");
     await composerLocator(page).press("Enter");
@@ -628,8 +634,8 @@ test("a pending comment whose quote its reply no longer holds shows as unresolve
     await expect(page.getByTestId("output-comment-unresolved")).toHaveText(
       "Quote not found: words the reply never had",
     );
-    // Its quote is painted nowhere, while the other's still is.
-    await expectBadges(page, [2]);
+    // Its quote is painted nowhere and it numbers last; the other's still is.
+    await expectBadges(page, [1]);
     await expectCommentHighlights(page, [{ text: THREE_QUOTE, tint: "pending" }]);
   } finally {
     await agent.cleanup();
@@ -1150,8 +1156,8 @@ test("a transcript goes to the comment its dictation started on, though focus mo
     await expectNotes(page, ["why this file?", "why three?"]);
     await expect(focusedNote(page)).toHaveValue("why this file?");
     await expectCommentHighlights(page, [
-      { text: THREE_QUOTE, tint: "pending" },
       { text: CONFIG_QUOTE, tint: "active" },
+      { text: THREE_QUOTE, tint: "pending" },
     ]);
     await expectComposerDraft(page, "");
   } finally {

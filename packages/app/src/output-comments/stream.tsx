@@ -26,6 +26,7 @@ import { OutputCommentHighlights } from "./highlights";
 import type { QuoteAnchor } from "./fence";
 import {
   findMovedCommentSource,
+  inReadingOrder,
   locateQuote,
   replyTextOf,
   type DeliveredOutputComment,
@@ -135,6 +136,20 @@ function moveReloadedSources(draftKey: string, assistants: readonly AssistantMes
   }
 }
 
+/** Numbered as they read, so the badges in the text and on the cards count down the output. */
+function useReadingOrder(
+  pending: readonly PendingOutputComment[],
+  items: readonly StreamItem[],
+): readonly PendingOutputComment[] {
+  // Streamed chunks keep the order, so the rows don't render per chunk.
+  const previous = useRef(pending);
+  return useMemo(() => {
+    const ordered = inReadingOrder(pending, items);
+    if (!isSameComments(previous.current, ordered)) previous.current = ordered;
+    return previous.current;
+  }, [items, pending]);
+}
+
 function groupBySource(
   pending: readonly PlacedOutputComment[],
 ): Map<string, NumberedPendingComment[]> {
@@ -170,7 +185,8 @@ export function OutputCommentsLayer({
     (state) => loadedComments(state.drafts[draftKey] ?? EMPTY_PENDING_COMMENTS, loaded),
     isSameComments,
   );
-  const pendingBySource = useMemo(() => groupBySource(pending), [pending]);
+  const ordered = useReadingOrder(pending, items);
+  const pendingBySource = useMemo(() => groupBySource(ordered), [ordered]);
   // A retained inactive panel holds stale items, and history that is still loading holds none.
   const canPublish = isPanelActive && isHistoryReady;
   const movedSourcesDraftKey = useRef<string | null>(null);
@@ -206,7 +222,7 @@ export function OutputCommentsLayer({
   return (
     <StreamCommentsContext.Provider value={comments}>
       <OutputCaretLayer viewportRef={viewportRef}>{children}</OutputCaretLayer>
-      <OutputCommentHighlights surfaceId={surfaceId} pending={pending} delivered={delivered} />
+      <OutputCommentHighlights surfaceId={surfaceId} pending={ordered} delivered={delivered} />
       {composer ? <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} /> : null}
     </StreamCommentsContext.Provider>
   );
