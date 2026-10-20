@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text } from "react-native";
+import { Text } from "react-native";
+import { PressHighlight } from "@/components/ui/press-highlight";
 import { StyleSheet } from "react-native-unistyles";
 import { colorWithAlpha } from "@/utils/color";
 import { outputCommentCardId } from "./composer-context";
@@ -50,7 +51,7 @@ export function DeliveredOutputCommentCard({
     revealOutputCommentQuote({ cardId, anchor: comment, blocks: blocksOf(comment.sourceItemId) });
   }, [blocksOf, cardId, comment, setActiveKey]);
   return (
-    <Pressable
+    <PressHighlight
       nativeID={cardId}
       onPress={handlePress}
       role="button"
@@ -62,7 +63,7 @@ export function DeliveredOutputCommentCard({
       <Text selectable={false} style={cardStyles.note}>
         {comment.note}
       </Text>
-    </Pressable>
+    </PressHighlight>
   );
 }
 

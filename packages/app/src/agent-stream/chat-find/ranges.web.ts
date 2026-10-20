@@ -1,10 +1,11 @@
 const BLOCKS = ["p", "pre", "li", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"]
-  .map((tag) => `[data-paseo-markdown-tag="${tag}"]`)
+  .flatMap((tag) => [tag, `[data-paseo-markdown-tag="${tag}"]`])
   .join(",");
+const MESSAGE_TEXT = '[data-message-text="true"]';
 const IGNORED =
   '[data-paseo-markdown-ignore="true"], [aria-hidden="true"], button, [role="button"], svg, script, style';
 
-/** The rows of one message, in reading order. Each is one Markdown block. */
+/** Rendered rows carrying a source message identity, in reading order. */
 export function findMessageRows(root: HTMLElement | null, messageId: string): HTMLElement[] {
   if (!root) return [];
   return Array.from(
@@ -33,26 +34,67 @@ interface RenderedMatchOptions {
 interface TextPoint {
   node: Text;
   block: Element;
+  /** A line break comes before it: a quote reads it as the whitespace its Markdown has. */
+  isAfterBreak: boolean;
   start: number;
   end: number;
 }
 
+function isSearchedText(node: Node, pluginRow: boolean): node is Text {
+  if (!(node instanceof Text) || node.parentElement?.closest(IGNORED)) return false;
+  return (
+    !pluginRow ||
+    node.parentElement?.checkVisibility({ opacityProperty: true, visibilityProperty: true }) ===
+      true
+  );
+}
+
 /** The row's text nodes, grouped into the texts a match may run across. */
-function textGroups(row: HTMLElement, isQuote: boolean): Iterable<TextPoint[]> {
-  const groups = new Map<Element, TextPoint[]>();
-  for (const content of row.querySelectorAll<HTMLElement>('[data-message-text="true"]')) {
-    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+function renderedTextGroups(row: HTMLElement, isQuote: boolean): TextPoint[][] {
+  const groups: TextPoint[][] = [];
+  // A plugin renderer owns the DOM of the message it replaced and sets no markers, so the
+  // whole row is searched and each div (a React Native View or Text) bounds a match.
+  const pluginRow = row.dataset.pluginRow === "true";
+  const blocks = pluginRow ? `${BLOCKS},div` : BLOCKS;
+  // A part of a message's text (an output comment's block) is searched on its own.
+  const contents =
+    pluginRow || row.closest(MESSAGE_TEXT)
+      ? [row]
+      : row.querySelectorAll<HTMLElement>(MESSAGE_TEXT);
+  for (const content of contents) {
+    let group: { block: Element; points: TextPoint[] } | undefined;
+    // A quote reads the whole content as one text.
+    const contentPoints: TextPoint[] = [];
+    let isAfterBreak = false;
+    const walker = document.createTreeWalker(
+      content,
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    );
     let node: Node | null;
     while ((node = walker.nextNode())) {
-      if (!(node instanceof Text) || node.parentElement?.closest(IGNORED)) continue;
-      const block = node.parentElement?.closest(BLOCKS) ?? content;
-      const group = isQuote ? content : block;
-      const points = groups.get(group) ?? [];
-      points.push({ node, block, start: 0, end: 0 });
-      groups.set(group, points);
+      if (node instanceof Element) {
+        // Even an empty nested block separates the text before and after it.
+        if (node.matches(blocks)) group = undefined;
+        if (node.tagName === "BR") isAfterBreak = true;
+        continue;
+      }
+      if (!isSearchedText(node, pluginRow)) continue;
+      const block = node.parentElement?.closest(blocks) ?? content;
+      const point = { node, block, isAfterBreak, start: 0, end: 0 };
+      isAfterBreak = false;
+      if (isQuote) {
+        contentPoints.push(point);
+        continue;
+      }
+      if (group?.block !== block) {
+        group = { block, points: [] };
+        groups.push(group.points);
+      }
+      group.points.push(point);
     }
+    if (contentPoints.length > 0) groups.push(contentPoints);
   }
-  return groups.values();
+  return groups;
 }
 
 /** Local offsets belong to the DOM that supplied the text, never to a host parser. */
@@ -70,11 +112,11 @@ export function findRenderedMatches(
     .join("\\s+");
   const flags = isQuote ? "gu" : "giu";
   const ranges: Range[] = [];
-  for (const points of textGroups(row, isQuote)) {
+  for (const points of renderedTextGroups(row, isQuote)) {
     let text = "";
     let block: Element | null = null;
     for (const point of points) {
-      if (block && point.block !== block) text += " ";
+      if (block && (point.block !== block || (isQuote && point.isAfterBreak))) text += " ";
       block = point.block;
       point.start = text.length;
       text += point.node.data;

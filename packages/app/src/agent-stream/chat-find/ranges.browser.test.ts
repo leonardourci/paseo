@@ -90,6 +90,25 @@ it("matches across list items in quote mode", () => {
   ).toEqual(["itemsecond"]);
 });
 
+it("matches across semantic list items in quote mode", () => {
+  const row = content("<ul><li>first item</li><li>second item</li></ul>");
+  expect(findRenderedMatches(row, "item second")).toEqual([]);
+  expect(
+    findRenderedMatches(row, "item second", { mode: "quote" }).map((range) => range.toString()),
+  ).toEqual(["itemsecond"]);
+});
+
+it("searches one block of a message's text on its own", () => {
+  const row = content("<p>one needle</p><p>two needle</p>");
+  const block = row.querySelector("p")!;
+  expect(findRenderedMatches(block, "needle", { mode: "quote" })).toHaveLength(1);
+});
+
+it("reads a line break as whitespace in quote mode", () => {
+  const row = content("<p>Status: ok<br>Next: deploy</p>");
+  expect(findRenderedMatches(row, "ok Next", { mode: "quote" }).map(String)).toEqual(["okNext"]);
+});
+
 it("finds overlapping occurrences in quote mode", () => {
   const row = content('<div data-paseo-markdown-tag="p">aaa</div>');
   expect(findRenderedMatches(row, "aa").map(offsetAndText)).toEqual([[0, "aa"]]);
@@ -97,4 +116,61 @@ it("finds overlapping occurrences in quote mode", () => {
     [0, "aa"],
     [1, "aa"],
   ]);
+});
+
+it("keeps semantic Markdown paragraphs separate while finding inline matches", () => {
+  const row = content(
+    "<p>İ😀hello <strong>world</strong>; hello <em>world</em>.</p><p>another paragraph</p>",
+  );
+  expect(findRenderedMatches(row, "hello world").map((range) => range.toString())).toEqual([
+    "hello world",
+    "hello world",
+  ]);
+  expect(findRenderedMatches(row, ".another")).toEqual([]);
+});
+
+function pluginRow(html: string) {
+  const row = document.createElement("div");
+  row.dataset.pluginRow = "true";
+  row.dataset.messageId = "message-1";
+  row.innerHTML = html;
+  document.body.append(row);
+  return row;
+}
+
+it("searches a plugin row that sets no text marker, bounding matches by view", () => {
+  const row = pluginRow(
+    "<div><div>Prompt</div><div>find <span>this</span> needle</div><div>needle</div><button>needle</button></div>",
+  );
+  expect(findRenderedMatches(row, "needle").map((range) => range.toString())).toEqual([
+    "needle",
+    "needle",
+  ]);
+  expect(findRenderedMatches(row, "Promptfind")).toEqual([]);
+  expect(findRenderedMatches(row, "find this needle")).toHaveLength(1);
+  expect(findMessageMatches(row.parentElement, "message-1", "needle")).toHaveLength(2);
+});
+
+it("leaves rows without the plugin marker limited to marked message text", () => {
+  const row = document.createElement("div");
+  row.innerHTML = "<div>needle</div>";
+  document.body.append(row);
+  expect(findRenderedMatches(row, "needle")).toEqual([]);
+});
+
+it("counts only drawn text in a plugin row, including an opened popover", () => {
+  const row = pluginRow(
+    '<div><span>visible needle</span><div hidden>hidden needle</div><div style="display:none">display needle</div><span style="visibility:hidden">visibility needle</span><span style="opacity:0">transparent needle</span><div popover="manual">popover needle</div></div>',
+  );
+  expect(findRenderedMatches(row, "needle").map((range) => range.toString())).toEqual(["needle"]);
+  row.querySelector<HTMLElement>("[popover]")!.showPopover();
+  expect(findRenderedMatches(row, "needle")).toHaveLength(2);
+});
+
+it("keeps text around nested plugin blocks in separate occurrences", () => {
+  const row = pluginRow("<div>alpha <div>details</div>beta</div><div>gamma <div></div>delta</div>");
+  expect(findRenderedMatches(row, "alpha beta")).toEqual([]);
+  expect(findRenderedMatches(row, "gamma delta")).toEqual([]);
+  expect(findRenderedMatches(row, "details").map((range) => range.toString())).toEqual(["details"]);
+  expect(findRenderedMatches(row, "beta").map((range) => range.toString())).toEqual(["beta"]);
 });

@@ -41,7 +41,7 @@ describe("rangesForQuote", () => {
     );
     const quote = "`currency-pt-br` worktree: 21 files.\n\n2. `analytics` and";
     expect(quoted({ root, anchor: anchor({ quote }) })).toEqual([
-      "currency-pt-br worktree: 21 files.2.analytics and",
+      "currency-pt-br worktree: 21 files.analytics and",
     ]);
   });
 
@@ -52,7 +52,7 @@ describe("rangesForQuote", () => {
     );
     const quote = "in draft.\n\n- Tokenize the source\n\nRun";
     expect(quoted({ root, anchor: anchor({ quote, endBlock: 1 }) })).toEqual([
-      "in draft.•Tokenize the source",
+      "in draft.Tokenize the source",
       "Run",
     ]);
   });
@@ -65,7 +65,7 @@ describe("rangesForQuote", () => {
       paragraph("Start."),
       paragraph("Ready.") + renderedList("ul", "one"),
     );
-    expect(quoted({ root: allRendered, anchor: target, blocks })).toEqual(["Start.", "Ready.•one"]);
+    expect(quoted({ root: allRendered, anchor: target, blocks })).toEqual(["Start.", "Ready.one"]);
     document.body.replaceChildren();
 
     const firstRendered = mountMessage(paragraph("Start."));

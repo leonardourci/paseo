@@ -19,8 +19,8 @@ function noBlocks(): readonly string[] {
 }
 
 function mountHeading(html: string): { root: HTMLElement; heading: HTMLElement } {
-  const root = mountMessage(`<div data-paseo-markdown-tag="h2">${html}</div>`);
-  const heading = root.querySelector<HTMLElement>('[data-paseo-markdown-tag="h2"]');
+  const root = mountMessage(`<h2>${html}</h2>`);
+  const heading = root.querySelector<HTMLElement>("h2");
   if (!heading) throw new Error("Expected heading fixture");
   return { root, heading };
 }
@@ -105,9 +105,7 @@ describe("readCommentableSelection occurrence", () => {
 });
 
 function paragraphTexts(root: HTMLElement): Text[] {
-  return Array.from(root.querySelectorAll('[data-paseo-markdown-tag="p"]'), (element) =>
-    textOf(element.firstChild),
-  );
+  return Array.from(root.querySelectorAll("p"), (element) => textOf(element.firstChild));
 }
 
 describe("readCommentableSelection across rows", () => {
@@ -136,7 +134,7 @@ describe("readCommentableSelection across rows", () => {
     );
     // A copy across rows reads them from the chat they are in.
     root.dataset.testid = "agent-chat-scroll";
-    root.querySelector('[data-history-row-id="m1:block:1"]')?.remove();
+    root.querySelector('[data-output-block="1"]')?.remove();
     const [, second, , , delta] = paragraphTexts(root);
     if (!second || !delta) throw new Error("Expected the rendered paragraphs");
     const selection = select([second, 0], [delta, 5]);
@@ -170,10 +168,8 @@ describe("readCommentableSelection across rows", () => {
 
 describe("readCommentableSelection in code", () => {
   it("quotes the code as written and marks it as code", () => {
-    const root = mountMessage(
-      '<div data-paseo-markdown-tag="pre"><span data-paseo-markdown-tag="code">x = 1\n# comment\ny = 2</span></div>',
-    );
-    const code = textOf(root.querySelector('[data-paseo-markdown-tag="code"]')?.firstChild);
+    const root = mountMessage("<pre><code>x = 1\n# comment\ny = 2</code></pre>");
+    const code = textOf(root.querySelector("code")?.firstChild);
     expect(
       readCommentableSelection({
         selection: select([code, 0], [code, 15]),
@@ -188,11 +184,11 @@ describe("readCommentableSelection in code", () => {
 });
 
 function listItem(text: string, nestedList = ""): string {
-  return `<div data-paseo-markdown-tag="li"><span data-paseo-markdown-ignore="true">•</span><div>${paragraph(text)}${nestedList}</div></div>`;
+  return `<li>${paragraph(text)}${nestedList}</li>`;
 }
 
 function list(tag: "ul" | "ol", ...items: string[]): string {
-  return `<div data-paseo-markdown-tag="${tag}">${items.join("")}</div>`;
+  return `<${tag}>${items.join("")}</${tag}>`;
 }
 
 function textOfParagraph(root: HTMLElement, text: string): Text {
@@ -239,8 +235,22 @@ describe("readCommentableSelection list item", () => {
       read: { quote: "gamma", endBlock: 0, endItem: [2] },
     },
     {
+      name: "reads a nested list continued after a card as the source numbers it",
+      html: `${list("ul", listItem("alpha", list("ul", listItem("alpha one"))))}<div data-output-item-parent="0" data-output-item-start="1">${list("ul", listItem("alpha two"))}</div>${list("ul", listItem("beta"))}`,
+      start: ["alpha two", 0] as const,
+      end: ["alpha two", 9] as const,
+      read: { quote: "alpha two", endBlock: 0, endItem: [0, 1] },
+    },
+    {
+      name: "counts top-level items past a continued nested list",
+      html: `${list("ul", listItem("alpha", list("ul", listItem("alpha one"))))}<div data-output-item-parent="0" data-output-item-start="1">${list("ul", listItem("alpha two"))}</div>${list("ul", listItem("beta"))}`,
+      start: ["beta", 0] as const,
+      end: ["beta", 4] as const,
+      read: { quote: "beta", endBlock: 0, endItem: [1] },
+    },
+    {
       name: "records no item inside a blockquote",
-      html: `<div data-paseo-markdown-tag="blockquote">${list("ul", listItem("quoted"))}</div>`,
+      html: `<blockquote>${list("ul", listItem("quoted"))}</blockquote>`,
       start: ["quoted", 0] as const,
       end: ["quoted", 6] as const,
       read: { quote: "quoted", endBlock: 0, endItem: undefined },
@@ -255,17 +265,9 @@ describe("readCommentableSelection list item", () => {
   });
 
   it.each([
-    ["a paragraph", paragraph("plain text"), '[data-paseo-markdown-tag="p"]'],
-    [
-      "a table cell",
-      '<div data-paseo-markdown-tag="table"><div data-paseo-markdown-tag="tbody"><div data-paseo-markdown-tag="tr"><div data-paseo-markdown-tag="td">plain text</div></div></div></div>',
-      '[data-paseo-markdown-tag="td"]',
-    ],
-    [
-      "a code block",
-      '<div data-paseo-markdown-tag="pre"><span data-paseo-markdown-tag="code">plain text</span></div>',
-      '[data-paseo-markdown-tag="code"]',
-    ],
+    ["a paragraph", paragraph("plain text"), "p"],
+    ["a table cell", "<table><tbody><tr><td>plain text</td></tr></tbody></table>", "td"],
+    ["a code block", "<pre><code>plain text</code></pre>", "code"],
   ])("records no item when the selection ends in %s", (_, html, textSelector) => {
     const root = mountMessage(html);
     const text = textOf(root.querySelector(textSelector)?.firstChild);
@@ -296,7 +298,8 @@ describe("readCommentableSelection across ordered list items", () => {
     const selection = select([itemStart, 0], [and, 4]);
     const read = readCommentableSelection({ selection, root, blocksOf: noBlocks });
     expect(read).toMatchObject({
-      quote: "`currency-pt-br` worktree: 21 files. It is not in 1.15.0.\n\n2. `analytics` and",
+      // Copying part of a semantic list keeps the items, not their numbers.
+      quote: "`currency-pt-br` worktree: 21 files. It is not in 1.15.0.\n\n`analytics` and",
       endBlock: 0,
       endItem: [1],
     });

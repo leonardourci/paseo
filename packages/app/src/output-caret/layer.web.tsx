@@ -28,6 +28,7 @@ import {
   latestReplyStart,
   nearestRowText,
   noteBetween,
+  pastTableEdge,
   placeFocus,
   sentCommentsEdge,
   textBesideNote,
@@ -287,6 +288,20 @@ function attachCaret({
     return true;
   }
 
+  /** Whether the caret came to rest where none is drawn, and was moved off it. */
+  function moveOffDeadStop(focus: TextPosition, move: Move | null): boolean {
+    return snapIntoRows(focus, move) || (move !== null && carryPastTableEdge(focus, move));
+  }
+
+  /** A caret move resting beside a table goes on; the next frame finishes the move from there. */
+  function carryPastTableEdge(focus: TextPosition, move: Move): boolean {
+    const past = pastTableEdge(scroller, { focus, direction: move.direction });
+    if (!past) return false;
+    lastMove = move;
+    placeFocus({ position: past, extend: move.extend });
+    return true;
+  }
+
   function saveSelection(): void {
     const selection = window.getSelection();
     if (!selection?.anchorNode || !selection.focusNode) return;
@@ -303,7 +318,7 @@ function attachCaret({
     lastMove = null;
     const focus = currentFocus();
     const isInOutput = focus !== null && isOutputPosition(scroller, focus.node);
-    if (focus && isInOutput && snapIntoRows(focus, move)) return;
+    if (focus && isInOutput && moveOffDeadStop(focus, move)) return;
     if (isInOutput) saveSelection();
     // The browser only scrolls the caret into view; the lines around it are kept here.
     if (move && isInOutput) reveal();

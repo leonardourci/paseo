@@ -311,24 +311,39 @@ export async function commentOn(
   await page.keyboard.type(note.slice(1));
 }
 
-/** Where each card renders, in page order, by the text around its group of cards. */
+/**
+ * What each card follows and precedes in its Markdown block: the first text of the item or node
+ * holding the nearest text before it, and after it.
+ */
 export async function cardPlaces(cards: Locator): Promise<CardPlace[]> {
   return cards.evaluateAll((elements) => {
-    function firstText(element: Element | null | undefined): string | null {
-      if (!element) return null;
+    const HOLDERS = "li, p, h1, h2, h3, h4, h5, h6, pre, td, th, blockquote";
+    const IGNORED = '[data-paseo-markdown-ignore="true"]';
+    function texts(element: Element): Text[] {
+      const found: Text[] = [];
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const isMarker = node.parentElement?.closest('[data-paseo-markdown-ignore="true"]');
-        const text = node.textContent?.trim();
-        if (!isMarker && text) return text;
+        if (node instanceof Text && node.data.trim() && !node.parentElement?.closest(IGNORED)) {
+          found.push(node);
+        }
       }
-      return null;
+      return found;
+    }
+    function holderText(text: Text | undefined): string | null {
+      if (!text) return null;
+      const holder = text.parentElement?.closest(HOLDERS) ?? text.parentElement;
+      return holder ? (texts(holder)[0]?.data.trim() ?? null) : null;
     }
     return elements.map((card) => {
       const group = card.closest('[data-testid="output-comment-rows"]');
+      const block = group?.closest("[data-output-block]");
+      if (!group || !block) return { before: null, after: null };
+      const blockTexts = texts(block);
+      const isBefore = (text: Text) =>
+        Boolean(group.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_PRECEDING);
       return {
-        before: firstText(group?.previousElementSibling),
-        after: firstText(group?.nextElementSibling),
+        before: holderText(blockTexts.findLast(isBefore)),
+        after: holderText(blockTexts.find((text) => !isBefore(text))),
       };
     });
   });

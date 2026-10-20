@@ -1,5 +1,4 @@
 import { findMessageRows, findRenderedMatches } from "@/agent-stream/chat-find/ranges.web";
-import { getAssistantBlockIndex } from "@/agent-stream/presentation";
 import { createAssistantRangeClipboardContent } from "@/assistant-selection-copy/content.web";
 import {
   MARKDOWN_COPY_IGNORE_ATTRIBUTE,
@@ -10,10 +9,13 @@ import { blockHolds, quotePieces } from "./match";
 import type { MessageBlocks, MessageBlocksOf } from "./types";
 
 export const ROW = "[data-history-row-id]";
-const ASSISTANT_MESSAGE = '[data-testid="assistant-message"]';
-const CODE = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="pre"], [${MARKDOWN_COPY_TAG_ATTRIBUTE}="code"]`;
-const LIST_ITEM = `[${MARKDOWN_COPY_TAG_ATTRIBUTE}="li"]`;
-const ITEM_OR_QUOTE = `${LIST_ITEM}, [${MARKDOWN_COPY_TAG_ATTRIBUTE}="blockquote"]`;
+/** A reply's Markdown block, as `OutputCommentsMessage` renders it. */
+export const BLOCK = "[data-output-block]";
+/** Semantic HTML from the Markdown renderer, or the copy markers of text the app draws. */
+const tagged = (tag: string) => `${tag}, [${MARKDOWN_COPY_TAG_ATTRIBUTE}="${tag}"]`;
+const CODE = `${tagged("pre")}, ${tagged("code")}`;
+const LIST_ITEM = tagged("li");
+const ITEM_OR_QUOTE = `${LIST_ITEM}, ${tagged("blockquote")}`;
 const IGNORED = `[${MARKDOWN_COPY_IGNORE_ATTRIBUTE}]`;
 
 export interface CommentableSelection extends QuoteAnchor {
@@ -27,6 +29,7 @@ interface CommentableSelectionInput {
 }
 
 interface QuotePiecesInput {
+  /** The message's rendered blocks, by index. */
   rows: ReadonlyMap<number, HTMLElement>;
   anchor: Pick<QuoteAnchor, "quote" | "isCode" | "startBlock" | "endBlock">;
   blocks: MessageBlocks;
@@ -39,7 +42,7 @@ interface OccurrenceInput {
 }
 
 interface SelectionEnd {
-  row: HTMLElement;
+  block: HTMLElement;
   range: Range;
 }
 
@@ -48,20 +51,28 @@ export function rowOf(node: Node): HTMLElement | null {
   return element?.closest<HTMLElement>(ROW) ?? null;
 }
 
-function blockIndexOfRow(row: HTMLElement): number | null {
-  return getAssistantBlockIndex(row.dataset.historyRowId ?? "");
+function blockOf(node: Node): HTMLElement | null {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest<HTMLElement>(BLOCK) ?? null;
+}
+
+function blockIndexOf(block: HTMLElement): number {
+  return Number(block.dataset.outputBlock);
+}
+
+function findMessageBlocks(root: HTMLElement, sourceItemId: string): HTMLElement[] {
+  return findMessageRows(root, sourceItemId).flatMap((row) =>
+    Array.from(row.querySelectorAll<HTMLElement>(BLOCK)),
+  );
 }
 
 export function messageRowsByBlock(
   root: HTMLElement,
   sourceItemId: string,
 ): Map<number, HTMLElement> {
-  const rows = new Map<number, HTMLElement>();
-  for (const row of findMessageRows(root, sourceItemId)) {
-    const block = blockIndexOfRow(row);
-    if (block !== null) rows.set(block, row);
-  }
-  return rows;
+  return new Map(
+    findMessageBlocks(root, sourceItemId).map((block) => [blockIndexOf(block), block]),
+  );
 }
 
 /** The quote's pieces, a row each, grouped by what the rows hold, rendered or not. */
@@ -122,41 +133,59 @@ function parentItemOrQuote(element: Element): Element | null {
   return element.parentElement?.closest(ITEM_OR_QUOTE) ?? null;
 }
 
-/** The DOM reading of `getMarkdownListItemPath`, for the item the range ends in. */
-function endItemPath(row: HTMLElement, range: Range): number[] | undefined {
-  let item = lastSelectedText(row, range)?.parentElement?.closest(ITEM_OR_QUOTE) ?? null;
+/** A nested list continued after a comment card, carrying where its items sit in the source. */
+const CONTINUATION = "[data-output-item-parent]";
+
+/** The items at `parent`'s level, a continuation's own top level kept apart from the block's. */
+function itemsBeside(scope: Element, parent: Element | null, continuation: Element | null) {
+  return Array.from(scope.querySelectorAll(LIST_ITEM)).filter(
+    (candidate) =>
+      parentItemOrQuote(candidate) === parent &&
+      (parent !== null || candidate.closest(CONTINUATION) === continuation),
+  );
+}
+
+/**
+ * The path, as `listItemPaths` numbers the block's Markdown, of the item the range ends in.
+ * Each level counts on across sibling lists.
+ */
+function endItemPath(block: HTMLElement, range: Range): number[] | undefined {
+  let item = lastSelectedText(block, range)?.parentElement?.closest(ITEM_OR_QUOTE) ?? null;
   const path: number[] = [];
   while (item) {
     if (!item.matches(LIST_ITEM)) return undefined;
     const parent = parentItemOrQuote(item);
-    const level = Array.from((parent ?? row).querySelectorAll(LIST_ITEM)).filter(
-      (candidate) => parentItemOrQuote(candidate) === parent,
-    );
-    path.unshift(level.indexOf(item));
+    const continuation = parent ? null : item.closest<HTMLElement>(CONTINUATION);
+    const index = itemsBeside(parent ?? continuation ?? block, parent, continuation).indexOf(item);
+    if (continuation) {
+      const { outputItemParent = "", outputItemStart = "0" } = continuation.dataset;
+      const parentPath = outputItemParent.split(".").map(Number);
+      return [...parentPath, Number(outputItemStart) + index, ...path];
+    }
+    path.unshift(index);
     item = parent;
   }
   return path.length > 0 ? path : undefined;
 }
 
 /**
- * A triple-click ends the range at the start of whatever follows the paragraph (the next row,
- * or a turn footer), so the end is the message's last row holding selected text, and the range
- * is cut back to that row's Markdown.
+ * A triple-click ends the range at the start of whatever follows the paragraph (the next block,
+ * or a turn footer), so the end is the message's last block holding selected text, and the range
+ * is cut back to that block.
  */
 function selectionEnd(range: Range, root: HTMLElement, sourceItemId: string): SelectionEnd | null {
   const endRow = rowOf(range.endContainer);
   const endsInOtherMessage =
     endRow !== null && endRow.dataset.messageId !== sourceItemId && selectsTextIn(endRow, range);
   if (endsInOtherMessage) return null;
-  const row = findMessageRows(root, sourceItemId).findLast((candidate) =>
+  const block = findMessageBlocks(root, sourceItemId).findLast((candidate) =>
     selectsTextIn(candidate, range),
   );
-  const message = row?.querySelector(ASSISTANT_MESSAGE);
-  if (!row || !message) return null;
-  if (message.contains(range.endContainer)) return { row, range };
+  if (!block) return null;
+  if (block.contains(range.endContainer)) return { block, range };
   const clamped = range.cloneRange();
-  clamped.setEnd(message, message.childNodes.length);
-  return { row, range: clamped };
+  clamped.setEnd(block, block.childNodes.length);
+  return { block, range: clamped };
 }
 
 export function readCommentableSelection({
@@ -167,12 +196,12 @@ export function readCommentableSelection({
   if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
   const range = selection.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return null;
-  const startRow = rowOf(range.startContainer);
-  const sourceItemId = startRow?.dataset.messageId;
-  const startBlock = startRow ? blockIndexOfRow(startRow) : null;
-  if (!sourceItemId || startBlock === null) return null;
+  const sourceItemId = rowOf(range.startContainer)?.dataset.messageId;
+  const startRow = blockOf(range.startContainer);
+  if (!sourceItemId || !startRow) return null;
+  const startBlock = blockIndexOf(startRow);
   const end = selectionEnd(range, root, sourceItemId);
-  const endBlock = end ? blockIndexOfRow(end.row) : null;
+  const endBlock = end ? blockIndexOf(end.block) : null;
   const content = end ? createAssistantRangeClipboardContent(end.range) : null;
   if (!end || endBlock === null || !content) return null;
   const rect = end.range.getBoundingClientRect();
@@ -187,6 +216,6 @@ export function readCommentableSelection({
     blocks: blocksOf(sourceItemId),
   });
   const occurrence = occurrenceAt({ row: startRow, piece, selected: range });
-  const endItem = endItemPath(end.row, end.range);
+  const endItem = endItemPath(end.block, end.range);
   return { sourceItemId, startBlock, endBlock, quote, occurrence, isCode, endItem, rect };
 }

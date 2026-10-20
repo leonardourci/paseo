@@ -11,6 +11,7 @@ import {
   latestReplyEnd,
   latestReplyStart,
   noteBetween,
+  pastTableEdge,
   textBesideNote,
   type CaretBox,
   type TextPosition,
@@ -52,17 +53,9 @@ const PENDING_CARD_HTML = `
     </div>
   </div>`;
 
-// As the web renders a list: each item a flex row, its marker beside its text.
+// As the Markdown renderer draws a list: its markers are CSS, not text.
 function orderedList(...items: string[]): string {
-  return items
-    .map(
-      (item, index) => `
-      <div data-paseo-markdown-tag="li" style="display: flex; flex-direction: row">
-        <div data-paseo-markdown-ignore="true" data-paseo-markdown-list-marker="true" style="width: 3ch">${index + 1}.</div>
-        <div style="flex: 1">${item}</div>
-      </div>`,
-    )
-    .join("");
+  return `<ol>${items.map((item) => `<li><span>${item}</span></li>`).join("")}</ol>`;
 }
 
 const USER_MESSAGE = `
@@ -166,7 +159,7 @@ describe("the keyboard caret by line", () => {
     expect(move(LINE_DOWN)).toBe(true);
     expect(describeFocus(selection)).toBe("u1:question here@6");
     expect(move(LINE_DOWN)).toBe(true);
-    expect(describeFocus(selection)).toBe("m2:block:0:beta line two@6");
+    expect(describeFocus(selection)).toBe("m2:beta line two@6");
     expect(move(LINE_UP)).toBe(true);
     expect(describeFocus(selection)).toBe("u1:question here@6");
   });
@@ -178,11 +171,11 @@ describe("the keyboard caret by line", () => {
     selectionAt(textContaining(root, "question"), 0);
 
     expect(walk(LINE_DOWN)).toEqual([
-      ...[0, 35, 70, 105, 140].map((offset) => `m2:block:0:${long}@${offset}`),
-      "m2:block:0:short item@0",
-      "m3:block:0:gamma line three@0",
+      ...[0, 35, 70, 105, 140].map((offset) => `m2:${long}@${offset}`),
+      "m2:short item@0",
+      "m3:gamma line three@0",
       // Down on the last line goes to its end, as in a text field.
-      "m3:block:0:gamma line three@16",
+      "m3:gamma line three@16",
     ]);
   });
 
@@ -191,7 +184,7 @@ describe("the keyboard caret by line", () => {
     const selection = selectionAt(textContaining(root, "question"), 3);
 
     expect(move(LINE_DOWN)).toBe(true);
-    expect(describeFocus(selection)).toBe("m2:block:0:beta line two@3");
+    expect(describeFocus(selection)).toBe("m2:beta line two@3");
   });
 
   it("extends across skipped rows into the next text", () => {
@@ -200,23 +193,18 @@ describe("the keyboard caret by line", () => {
 
     expect(move({ ...LINE_DOWN, alter: "extend" })).toBe(true);
     // At the start of beta's paragraph, which the browser gives as the paragraph's own start.
-    expect(describeFocus(selection)).toBe("m2:block:0:<DIV>@0");
+    expect(describeFocus(selection)).toBe("m2:<P>@0");
     expect(selection.anchorNode).toBe(textContaining(root, "question"));
   });
 
   it("steps down past a line with a link, whose box it would otherwise bounce into", () => {
-    // As the web markdown draws a link: a pressable box inside the paragraph's text.
-    const link = `<div style="display: inline-flex"><a href="#" style="display: contents">
-      <div role="link" style="display: flex"><span style="display: block"><span>the config</span></span></div>
-    </a></div>`;
+    // As the web markdown draws a link: an anchor in its tooltip trigger's span.
+    const link = `<span><a href="#" style="overflow-wrap: anywhere">the config</a></span>`;
     const root = mountOutput({ m2: `${paragraph(`reads ${link} now`)}${paragraph("next line")}` });
     const selection = selectionAt(textContaining(root, "reads"), 2);
 
-    expect(walk(LINE_DOWN).slice(0, 2)).toEqual([
-      "m2:block:0:next line@2",
-      "m3:block:0:gamma line three@2",
-    ]);
-    expect(describeFocus(selection)).toBe("m3:block:0:gamma line three@16");
+    expect(walk(LINE_DOWN).slice(0, 2)).toEqual(["m2:next line@2", "m3:gamma line three@2"]);
+    expect(describeFocus(selection)).toBe("m3:gamma line three@16");
   });
 });
 
@@ -226,9 +214,9 @@ describe("the keyboard caret by character", () => {
     const selection = selectionAt(textContaining(root, "apple"), 5);
 
     expect(move(RIGHT)).toBe(true);
-    expect(describeFocus(selection)).toBe("m2:block:0:pear@0");
+    expect(describeFocus(selection)).toBe("m2:pear@0");
     expect(move(LEFT)).toBe(true);
-    expect(describeFocus(selection)).toBe("m2:block:0:apple@5");
+    expect(describeFocus(selection)).toBe("m2:apple@5");
   });
 });
 
@@ -240,7 +228,7 @@ describe("the keyboard caret at the edges", () => {
 
     expect(move(LINE_DOWN)).toBe(false);
     expect(move(RIGHT)).toBe(false);
-    expect(describeFocus(selection)).toBe("m3:block:0:gamma line three@16");
+    expect(describeFocus(selection)).toBe("m3:gamma line three@16");
   });
 });
 
@@ -260,7 +248,7 @@ describe("the keyboard caret and pending notes", () => {
     const selection = selectionAt(textContaining(root, "beta"), 2);
 
     expect(move(LINE_DOWN)).toBe(true);
-    expect(describeFocus(selection)).toBe("m3:block:0:gamma line three@2");
+    expect(describeFocus(selection)).toBe("m3:gamma line three@2");
   });
 
   it("finds a note a line move stepped over, or would reach past the output's edge", () => {
@@ -279,8 +267,8 @@ describe("the keyboard caret and pending notes", () => {
     const describeBeside = (direction: "backward" | "forward") =>
       describePosition(textBesideNote(root, { note: note(root), direction }));
 
-    expect(describeBeside("backward")).toBe("m2:block:0:beta line two@13");
-    expect(describeBeside("forward")).toBe("m3:block:0:gamma line three@0");
+    expect(describeBeside("backward")).toBe("m2:beta line two@13");
+    expect(describeBeside("forward")).toBe("m3:gamma line three@0");
   });
 
   it("keeps where to leave a note for once its card is deleted", () => {
@@ -288,7 +276,7 @@ describe("the keyboard caret and pending notes", () => {
     const below = textBesideNote(root, { note: note(root), direction: "forward" });
     root.querySelector('[data-testid="output-comment-pending"]')?.remove();
 
-    expect(describePosition(below)).toBe("m3:block:0:gamma line three@0");
+    expect(describePosition(below)).toBe("m3:gamma line three@0");
   });
 
   // Wraps after "dddd ", so the second line starts at 20 and a typed third at 30.
@@ -344,8 +332,8 @@ describe("caret positions", () => {
   it("finds the start and end of the latest reply", () => {
     const root = mountOutput();
 
-    expect(describePosition(latestReplyStart(root))).toBe("m2:block:0:beta line two@0");
-    expect(describePosition(latestReplyEnd(root))).toBe("m3:block:0:gamma line three@16");
+    expect(describePosition(latestReplyStart(root))).toBe("m2:beta line two@0");
+    expect(describePosition(latestReplyEnd(root))).toBe("m3:gamma line three@16");
   });
 });
 
@@ -391,5 +379,31 @@ describe("rows the list hasn't rendered", () => {
     expect(isRowAheadUnmounted(document.body, { focus: focusIn(), direction: "forward" })).toBe(
       false,
     );
+  });
+});
+
+describe("pastTableEdge", () => {
+  it("carries a caret resting beside a table on into its text, or out of it", () => {
+    const root = mountOutput({
+      m2: `${paragraph("before table")}<div><table><tbody><tr><td>Name</td></tr><tr><td>last cell</td></tr></tbody></table></div>${paragraph("after table")}`,
+    });
+    const wrapper = root.querySelector("table")!.parentElement!;
+    const atTable = { node: wrapper, offset: 0 };
+    const spot = (position: TextPosition | null) =>
+      position ? `${position.node.textContent}@${position.offset}` : null;
+
+    expect(spot(pastTableEdge(root, { focus: atTable, direction: "forward" }))).toBe("Name@0");
+    expect(spot(pastTableEdge(root, { focus: atTable, direction: "backward" }))).toBe(
+      "before table@12",
+    );
+    const pastTable = { node: wrapper, offset: 1 };
+    expect(spot(pastTableEdge(root, { focus: pastTable, direction: "forward" }))).toBe(
+      "after table@0",
+    );
+    expect(spot(pastTableEdge(root, { focus: pastTable, direction: "backward" }))).toBe(
+      "last cell@9",
+    );
+    const inText = { node: textContaining(root, "Name"), offset: 0 };
+    expect(pastTableEdge(root, { focus: inText, direction: "forward" })).toBeNull();
   });
 });
