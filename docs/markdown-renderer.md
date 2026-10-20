@@ -4,6 +4,10 @@ Use `MarkdownRenderer` for chat replies, file previews, plans, pull requests and
 
 Native selection belongs to the library's text view. Keep an assistant message in one row so selection can cross paragraphs, headings and lists. Code blocks and tables use the library's native views and their selection behavior. Web uses browser selection over semantic HTML. Once its WASM parser is initialized, the library parses synchronously for the first commit of each mounted row; an empty interim row would corrupt virtualized measurements and move the reader. Chat owns paced reveal, the web render cap, message identity and list measurement. Native renders completed messages together. While streaming, it keeps closed blocks in one head view and updates a separate tail, then reunites the text on completion. See [native parsing cost](agent-stream-performance.md#native-parsing-cost) for the boundary and pacing constraints.
 
+## Output comments
+
+Output comments anchor a quote to a reply's Markdown blocks (`splitMarkdownBlocks`), and a sent message stores those block indexes, so keep that splitter's behavior. On web the chat renders each block as its own library text, which lets a selection tell its block; selection still crosses blocks there. A comment card goes after the paragraph, node or list item its quote ends in. The library has no hook inside its text, so the block's source is split at that point (`output-comments/split.ts`) and the continuation keeps its list numbering, dedented and indented for a nested item. Native renders a reply as one text unless it carries cards, then by block like web; native selection stops at a card.
+
 ## Block spacing
 
 Every block is separated by one gap, `density.blockGap`: 12 on compact layouts, 16 wider. Inside the library's text, every element style ends with that gap and the library drops it after the last block. Views stacked outside the library (Mermaid segments, streaming head and tail) use the same gap through `MarkdownBlockStack`. Do not give a block type its own margins; change the gap.
