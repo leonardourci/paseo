@@ -56,7 +56,7 @@ function renderedTextGroups(row: HTMLElement, isQuote: boolean): TextPoint[][] {
   // whole row is searched and each div (a React Native View or Text) bounds a match.
   const pluginRow = row.dataset.pluginRow === "true";
   const blocks = pluginRow ? `${BLOCKS},div` : BLOCKS;
-  // A part of a message's text (an output comment's block) is searched on its own.
+  // A message's own text element, as an output comment reads its reply, is searched on its own.
   const contents =
     pluginRow || row.closest(MESSAGE_TEXT)
       ? [row]
@@ -97,6 +97,53 @@ function renderedTextGroups(row: HTMLElement, isQuote: boolean): TextPoint[][] {
   return groups;
 }
 
+interface RenderedMatch {
+  range: Range;
+  /** Where the match sits in `RenderedQuote.text`. */
+  start: number;
+  end: number;
+}
+
+/** A quote's occurrences in one message's text, with that text as a quote reads it. */
+export interface RenderedQuote {
+  text: string;
+  matches: RenderedMatch[];
+}
+
+function patternOf(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
+}
+
+function matchPoints(points: TextPoint[], pattern: string, isQuote: boolean): RenderedQuote {
+  let text = "";
+  let block: Element | null = null;
+  for (const point of points) {
+    if (block && (point.block !== block || (isQuote && point.isAfterBreak))) text += " ";
+    block = point.block;
+    point.start = text.length;
+    text += point.node.data;
+    point.end = text.length;
+  }
+  const matches: RenderedMatch[] = [];
+  const regex = new RegExp(pattern, isQuote ? "gu" : "giu");
+  for (let match = regex.exec(text); match; match = regex.exec(text)) {
+    if (isQuote) regex.lastIndex = match.index + 1;
+    const start = points.find((point) => point.start <= match.index && point.end > match.index);
+    const endOffset = match.index + match[0].length;
+    const end = points.find((point) => point.start < endOffset && point.end >= endOffset);
+    if (!start || !end) continue;
+    const range = document.createRange();
+    range.setStart(start.node, match.index - start.start);
+    range.setEnd(end.node, endOffset - end.start);
+    matches.push({ range, start: match.index, end: endOffset });
+  }
+  return { text, matches };
+}
+
 /** Local offsets belong to the DOM that supplied the text, never to a host parser. */
 export function findRenderedMatches(
   row: HTMLElement,
@@ -105,35 +152,15 @@ export function findRenderedMatches(
 ): Range[] {
   if (!query.trim()) return [];
   const isQuote = mode === "quote";
-  const pattern = query
-    .trim()
-    .split(/\s+/)
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("\\s+");
-  const flags = isQuote ? "gu" : "giu";
-  const ranges: Range[] = [];
-  for (const points of renderedTextGroups(row, isQuote)) {
-    let text = "";
-    let block: Element | null = null;
-    for (const point of points) {
-      if (block && (point.block !== block || (isQuote && point.isAfterBreak))) text += " ";
-      block = point.block;
-      point.start = text.length;
-      text += point.node.data;
-      point.end = text.length;
-    }
-    const regex = new RegExp(pattern, flags);
-    for (let match = regex.exec(text); match; match = regex.exec(text)) {
-      if (isQuote) regex.lastIndex = match.index + 1;
-      const start = points.find((point) => point.start <= match.index && point.end > match.index);
-      const endOffset = match.index + match[0].length;
-      const end = points.find((point) => point.start < endOffset && point.end >= endOffset);
-      if (!start || !end) continue;
-      const range = document.createRange();
-      range.setStart(start.node, match.index - start.start);
-      range.setEnd(end.node, endOffset - end.start);
-      ranges.push(range);
-    }
-  }
-  return ranges;
+  const pattern = patternOf(query);
+  return renderedTextGroups(row, isQuote).flatMap((points) =>
+    matchPoints(points, pattern, isQuote).matches.map((match) => match.range),
+  );
+}
+
+/** Reads `content`, one message's text element, as one text the way "quote" mode does. */
+export function findRenderedQuote(content: HTMLElement, quote: string): RenderedQuote {
+  const [points] = renderedTextGroups(content, true);
+  if (!points || !quote.trim()) return { text: "", matches: [] };
+  return matchPoints(points, patternOf(quote), true);
 }
