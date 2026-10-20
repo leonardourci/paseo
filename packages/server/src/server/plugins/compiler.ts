@@ -10,6 +10,7 @@ import {
 } from "./plugin-sdk-specifiers.js";
 
 const nodeRequire = createRequire(import.meta.url);
+export const SERVER_HOST_MODULES = [...PLUGIN_SDK_SPECIFIERS, "zod"];
 const ESBUILD_BINARY_PATH = "ESBUILD_BINARY_PATH";
 
 // esbuild resolves its own platform binary via require.resolve() the first time its
@@ -244,6 +245,10 @@ function createRuntimeBoundaryPlugin(target: PluginBuildTarget, pluginDirectory:
             runtimeSpecifierError(packageSpecifier, owner, file) ??
             lexicalBoundaryError(specifier, path.dirname(file), pluginDirectory, owner);
           if (error) return error;
+          // Protocol types are shared host contracts, also exposed by the SDK's peer
+          // dependency during development. Erased imports need no plugin-local install;
+          // runtime imports still go through normal dependency resolution below.
+          if (typeOnly && specifier.startsWith("@getpaseo/protocol/")) continue;
           // Host modules have separately enforced SDK boundaries and need no local installation.
           if (
             (PLUGIN_SDK_SPECIFIERS as readonly string[]).includes(specifier) ||
@@ -390,6 +395,10 @@ async function compileTarget(entryPath: string, target: PluginBuildTarget): Prom
     jsx: "automatic",
     platform: target === "server" ? "node" : "neutral",
     target: target === "server" ? "node20" : "es2020",
+    // The neutral platform reads no package.json entry fields, so packages without
+    // `exports` would not resolve. Read the same fields as esbuild's browser platform
+    // minus `browser`, since the bundle also runs in React Native.
+    mainFields: target === "client" ? ["module", "main"] : undefined,
     // Metro lowers async syntax before Hermes sees app code. Plugin client bundles bypass Metro,
     // so apply the same compatibility transform before the app evaluates them from source.
     supported: target === "client" ? { "async-await": false } : undefined,
@@ -403,7 +412,7 @@ async function compileTarget(entryPath: string, target: PluginBuildTarget): Prom
             "react-native",
             "zod",
           ]
-        : [...PLUGIN_SDK_SPECIFIERS, "zod"],
+        : SERVER_HOST_MODULES,
     plugins: [createRuntimeBoundaryPlugin(target, pluginDirectory)],
     metafile: true,
     logLevel: "silent",
