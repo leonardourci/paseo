@@ -87,7 +87,7 @@ import {
 } from "./bottom-anchor-controller";
 import { createAssistantImageOccurrenceKey } from "@/assistant-image/acquisition-cache";
 import { AssistantSelectionCopySurface } from "@/assistant-selection-copy/surface";
-import { OutputCommentsBlock, OutputCommentsLayer } from "@/output-comments/stream";
+import { OutputCommentsLayer, OutputCommentsMessage } from "@/output-comments/stream";
 import { AssistantFileLinkResolverProvider, createInlinePathOpener } from "@/assistant-file-links";
 import {
   createWorkspaceFileTabTarget,
@@ -705,11 +705,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             onOpenWorkspaceFile={handleInlinePathPress}
             toast={toast}
           >
-            <OutputCommentsBlock
-              sourceItemId={getStreamItemMessageId(item)}
-              blockIndex={item.blockIndex ?? 0}
-              blockText={item.text}
-            >
+            <OutputCommentsMessage sourceItemId={getStreamItemMessageId(item)}>
               <ChatFindExpansion messageId={getStreamItemMessageId(item)}>
                 {(renderFullContent) => (
                   <AssistantMessage
@@ -725,7 +721,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                   />
                 )}
               </ChatFindExpansion>
-            </OutputCommentsBlock>
+            </OutputCommentsMessage>
           </AssistantFileLinkResolverProvider>
         );
       },

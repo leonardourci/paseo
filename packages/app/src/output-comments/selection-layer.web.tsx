@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { MessageSquarePlus, Quote } from "lucide-react-native";
-import { getAssistantBlockRowId } from "@/agent-stream/presentation";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useSettings } from "@/hooks/use-settings";
@@ -20,7 +19,11 @@ import { registerDictationSurface, type FocusedNote } from "./dictation";
 import type { QuoteAnchor } from "./fence";
 import { attachNoteImage } from "./note-images.web";
 import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
-import { readCommentableSelection, type CommentableSelection } from "./selection.web";
+import {
+  messageRowsByBlock,
+  readCommentableSelection,
+  type CommentableSelection,
+} from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 import { CONTROL, PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import type { OutputCommentSelectionLayerProps } from "./types";
@@ -202,8 +205,8 @@ export function OutputCommentSelectionLayer({
       draftKey,
       surfaceId,
       isCardRowRendered: ({ sourceItemId, endBlock }: QuoteAnchor) => {
-        const rowId = CSS.escape(getAssistantBlockRowId(sourceItemId, endBlock));
-        return Boolean(surfaceRoot()?.querySelector(`[data-history-row-id="${rowId}"]`));
+        const root = surfaceRoot();
+        return root !== null && messageRowsByBlock(root, sourceItemId).has(endBlock);
       },
     };
     const onCaretEnter = (event: KeyboardEvent): boolean => {

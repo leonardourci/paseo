@@ -1,5 +1,7 @@
 import {
   createContext,
+  Fragment,
+  memo,
   useContext,
   useEffect,
   useId,
@@ -15,12 +17,10 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { markdownCopyDataSet } from "@/assistant-selection-copy/markup";
 import { OutputCaretLayer } from "@/output-caret/layer";
-import {
-  MarkdownSlotContext,
-  type MarkdownSlot,
-  type RenderMarkdownSlot,
-} from "@/components/markdown/slot";
+import { MarkdownBlockStack } from "@/components/markdown/block-stack";
+import { MarkdownBlocksContext, type RenderMarkdownBlocks } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { isWeb } from "@/constants/platform";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
 import type { AssistantMessageItem, StreamItem } from "@/types/stream";
@@ -40,6 +40,7 @@ import {
   type TopLevelNodes,
 } from "./match";
 import { PendingOutputCommentCard } from "./pending-card";
+import { splitMarkdownAtSlots, type MarkdownPiece } from "./split";
 import { OutputCommentSelectionLayer } from "./selection-layer";
 import type { MessageBlocks, MessageBlocksOf } from "./types";
 import {
@@ -60,11 +61,25 @@ interface OutputCommentsLayerProps {
   children: ReactNode;
 }
 
-interface OutputCommentsBlockProps {
+interface OutputCommentsMessageProps {
   sourceItemId: string;
-  blockIndex: number;
-  blockText: string;
   children: ReactNode;
+}
+
+interface OutputBlocksProps {
+  sourceItemId: string;
+  blocks: readonly string[];
+  renderMarkdown: (text: string) => ReactNode;
+  pending: readonly NumberedPendingComment[];
+  delivered: readonly DeliveredOutputComment[];
+}
+
+interface OutputBlockProps {
+  index: number;
+  blockText: string;
+  renderMarkdown: (text: string) => ReactNode;
+  pending: readonly NumberedPendingComment[];
+  delivered: readonly DeliveredOutputComment[];
 }
 
 interface NumberedPendingComment {
@@ -77,20 +92,12 @@ interface CardGroup {
   delivered: DeliveredOutputComment[];
 }
 
-interface SlotCards extends CardGroup {
-  /** The top-level node the slot is after, or holds its list item. */
-  node: number;
-}
-
-interface PlacedSlot {
-  slot: InnerSlot;
-  node: number;
-}
+type InnerSlot = { node: number } | { item: readonly number[] };
 
 interface BlockCards {
   afterBlock: CardGroup;
-  /** Keyed by `slotKey`. */
-  afterSlots: Map<string, SlotCards>;
+  /** Keyed by `slotKey`, as `splitMarkdownAtSlots` reads them. */
+  afterSlots: Map<string, CardGroup>;
 }
 
 interface BlockCardsInput {
@@ -102,6 +109,8 @@ interface BlockCardsInput {
 interface OutputCommentCardsProps {
   cards: CardGroup;
   blockText: string;
+  /** The list nesting the cards sit at. */
+  depth?: number;
 }
 
 interface SentCommentQuote {
@@ -116,15 +125,13 @@ interface StreamComments {
   agentId: string;
   /** Tells this pane's cards from another pane's showing the same agent. */
   surfaceId: string;
-  pendingByRow: ReadonlyMap<string, readonly NumberedPendingComment[]>;
+  pendingBySource: ReadonlyMap<string, readonly NumberedPendingComment[]>;
   delivered: DeliveredOutputComments;
   /** The items the delivered comments were resolved in. */
   commentTurns: readonly StreamItem[];
   viewportRef: RefObject<StreamViewportHandle | null>;
   blocksOf: MessageBlocksOf;
 }
-
-type InnerSlot = Exclude<MarkdownSlot, { rest: number }>;
 
 const EMPTY_ROW_PENDING: readonly NumberedPendingComment[] = [];
 const EMPTY_ROW_DELIVERED: readonly DeliveredOutputComment[] = [];
@@ -135,10 +142,6 @@ function useStreamComments(): StreamComments {
   const comments = useContext(StreamCommentsContext);
   invariant(comments, "Output comments render inside OutputCommentsLayer");
   return comments;
-}
-
-function rowKey(sourceItemId: string, block: number): string {
-  return `${sourceItemId}:${block}`;
 }
 
 function itemKey(path: readonly number[]): string {
@@ -161,41 +164,27 @@ function placeCards({ pending, delivered, blockText }: BlockCardsInput): BlockCa
   const cards: BlockCards = { afterBlock: emptyGroup(), afterSlots: new Map() };
   let itemNodes: ReadonlyMap<string, number> | null = null;
   let nodes: TopLevelNodes | null = null;
-  function slotFor(anchor: QuoteAnchor): PlacedSlot | null {
+  function slotFor(anchor: QuoteAnchor): InnerSlot | null {
     if (anchor.endItem !== undefined) {
       itemNodes ??= listItemPaths(blockText);
-      const itemNode = itemNodes.get(itemKey(anchor.endItem));
       // A card after an item the block doesn't have would never render.
-      if (itemNode !== undefined) return { slot: { item: anchor.endItem }, node: itemNode };
+      if (itemNodes.has(itemKey(anchor.endItem))) return { item: anchor.endItem };
     }
     nodes ??= readTopLevelNodes(blockText);
     const node = quoteEndNode(nodes, anchor);
-    return node === null ? null : { slot: { node }, node };
+    return node === null ? null : { node };
   }
   function groupFor(anchor: QuoteAnchor): CardGroup {
-    const placed = slotFor(anchor);
-    if (!placed) return cards.afterBlock;
-    const key = slotKey(placed.slot);
-    const group = cards.afterSlots.get(key) ?? { ...emptyGroup(), node: placed.node };
+    const slot = slotFor(anchor);
+    if (!slot) return cards.afterBlock;
+    const key = slotKey(slot);
+    const group = cards.afterSlots.get(key) ?? emptyGroup();
     cards.afterSlots.set(key, group);
     return group;
   }
   for (const entry of pending) groupFor(entry.comment).pending.push(entry);
   for (const comment of delivered) groupFor(comment).delivered.push(comment);
   return cards;
-}
-
-/**
- * The cards at `slot`. At `rest`, those on every node the body didn't render: a message past the
- * render cap, or still being revealed. An item in a list cut short within a rendered node has none.
- */
-function cardsAt(slots: ReadonlyMap<string, SlotCards>, slot: MarkdownSlot): CardGroup | null {
-  if (!("rest" in slot)) return slots.get(slotKey(slot)) ?? null;
-  const groups = [...slots.values()].filter((group) => group.node >= slot.rest);
-  if (groups.length === 0) return null;
-  const pending = groups.flatMap((group) => group.pending);
-  const delivered = groups.flatMap((group) => group.delivered);
-  return { pending, delivered };
 }
 
 function isSameComments(
@@ -239,17 +228,16 @@ function moveReloadedSources(draftKey: string, assistants: readonly AssistantMes
   }
 }
 
-function groupByRow(
+function groupBySource(
   pending: readonly PlacedOutputComment[],
 ): Map<string, NumberedPendingComment[]> {
-  const byRow = new Map<string, NumberedPendingComment[]>();
+  const bySource = new Map<string, NumberedPendingComment[]>();
   for (const [index, comment] of pending.entries()) {
-    const key = rowKey(comment.sourceItemId, comment.endBlock);
-    const row = byRow.get(key) ?? [];
-    row.push({ comment, number: index + 1 });
-    byRow.set(key, row);
+    const source = bySource.get(comment.sourceItemId) ?? [];
+    source.push({ comment, number: index + 1 });
+    bySource.set(comment.sourceItemId, source);
   }
-  return byRow;
+  return bySource;
 }
 
 export function OutputCommentsLayer({
@@ -275,7 +263,7 @@ export function OutputCommentsLayer({
     (state) => loadedComments(state.drafts[draftKey] ?? EMPTY_PENDING_COMMENTS, loaded),
     isSameComments,
   );
-  const pendingByRow = useMemo(() => groupByRow(pending), [pending]);
+  const pendingBySource = useMemo(() => groupBySource(pending), [pending]);
   // A retained inactive panel holds stale items, and history that is still loading holds none.
   const canPublish = isPanelActive && isHistoryReady;
   const movedSourcesDraftKey = useRef<string | null>(null);
@@ -306,7 +294,7 @@ export function OutputCommentsLayer({
       serverId,
       agentId,
       surfaceId,
-      pendingByRow,
+      pendingBySource,
       delivered,
       commentTurns,
       viewportRef,
@@ -318,7 +306,7 @@ export function OutputCommentsLayer({
       commentTurns,
       delivered,
       draftKey,
-      pendingByRow,
+      pendingBySource,
       serverId,
       surfaceId,
       viewportRef,
@@ -361,39 +349,167 @@ export function useSentCommentQuote(key: string): SentCommentQuote | null {
 }
 
 /**
- * Wraps the block's output so a card can follow the node or list item its quote ends in, and puts
- * the rest after it.
+ * Renders the reply's blocks with the cards of comments on it, each after the node or list item its
+ * quote ends in. Web renders every reply by block, so a selection can tell its block; native keeps
+ * a reply without cards one text, which its selection needs.
  */
-export function OutputCommentsBlock({
-  sourceItemId,
-  blockIndex,
-  blockText,
-  children,
-}: OutputCommentsBlockProps) {
-  const { pendingByRow, delivered } = useStreamComments();
-  const rowPending = pendingByRow.get(rowKey(sourceItemId, blockIndex)) ?? EMPTY_ROW_PENDING;
+export function OutputCommentsMessage({ sourceItemId, children }: OutputCommentsMessageProps) {
+  const { pendingBySource, delivered } = useStreamComments();
+  const pending = pendingBySource.get(sourceItemId) ?? EMPTY_ROW_PENDING;
   const sourceDelivered = delivered.get(sourceItemId) ?? EMPTY_ROW_DELIVERED;
-  const cards = useMemo(() => {
-    const deliveredHere = sourceDelivered.filter((comment) => comment.endBlock === blockIndex);
-    return placeCards({ pending: rowPending, delivered: deliveredHere, blockText });
-  }, [blockIndex, blockText, rowPending, sourceDelivered]);
-  // Null unless a card goes inside the block, so every other block keeps its Markdown rules.
-  const renderSlot = useMemo((): RenderMarkdownSlot | null => {
-    if (cards.afterSlots.size === 0) return null;
-    return (slot) => {
-      const group = cardsAt(cards.afterSlots, slot);
-      return group ? <OutputCommentCards cards={group} blockText={blockText} /> : null;
-    };
-  }, [blockText, cards]);
+  const hasCards = pending.length > 0 || sourceDelivered.length > 0;
+  const renderBlocks = useMemo((): RenderMarkdownBlocks | null => {
+    if (!isWeb && !hasCards) return null;
+    return ({ blocks, renderMarkdown }) => (
+      <OutputBlocks
+        sourceItemId={sourceItemId}
+        blocks={blocks}
+        renderMarkdown={renderMarkdown}
+        pending={pending}
+        delivered={sourceDelivered}
+      />
+    );
+  }, [hasCards, pending, sourceDelivered, sourceItemId]);
   return (
-    <>
-      <MarkdownSlotContext.Provider value={renderSlot}>{children}</MarkdownSlotContext.Provider>
-      <OutputCommentCards cards={cards.afterBlock} blockText={blockText} />
-    </>
+    <MarkdownBlocksContext.Provider value={renderBlocks}>{children}</MarkdownBlocksContext.Provider>
   );
 }
 
-function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
+/**
+ * Comments on blocks not rendered yet (still revealing, or past the render cap) follow the last
+ * rendered block, as their own cards: their quotes are placed in their blocks once those render.
+ */
+function OutputBlocks({
+  sourceItemId,
+  blocks,
+  renderMarkdown,
+  pending,
+  delivered,
+}: OutputBlocksProps) {
+  const { blocksOf } = useStreamComments();
+  const byBlock = useMemo(() => {
+    const groups = new Map<number, CardGroup>();
+    const groupAt = (endBlock: number) => {
+      const group = groups.get(endBlock) ?? emptyGroup();
+      groups.set(endBlock, group);
+      return group;
+    };
+    for (const entry of pending) groupAt(entry.comment.endBlock).pending.push(entry);
+    for (const comment of delivered) groupAt(comment.endBlock).delivered.push(comment);
+    return groups;
+  }, [delivered, pending]);
+  const unrendered = [...byBlock].filter(([endBlock]) => endBlock >= blocks.length);
+  return (
+    <MarkdownBlockStack>
+      {blocks.map((blockText, index) => (
+        <OutputBlock
+          // oxlint-disable-next-line react/no-array-index-key -- a block is its index in the reply
+          key={index}
+          index={index}
+          blockText={blockText}
+          renderMarkdown={renderMarkdown}
+          pending={byBlock.get(index)?.pending ?? EMPTY_ROW_PENDING}
+          delivered={byBlock.get(index)?.delivered ?? EMPTY_ROW_DELIVERED}
+        />
+      ))}
+      {unrendered.map(([endBlock, group]) => (
+        <OutputCommentCards
+          key={`unrendered:${endBlock}`}
+          cards={group}
+          blockText={blocksOf(sourceItemId)[endBlock] ?? ""}
+        />
+      ))}
+    </MarkdownBlockStack>
+  );
+}
+
+/** A nested list's continuation, indented as its list and telling selections where its items are. */
+function ContinuedPiece({
+  piece,
+  continues,
+  children,
+}: {
+  piece: MarkdownPiece;
+  continues: NonNullable<MarkdownPiece["continues"]>;
+  children: ReactNode;
+}) {
+  const dataSet = useMemo(
+    () => ({
+      [OUTPUT_ITEM_PARENT_DATASET_KEY]: continues.parent.join("."),
+      [OUTPUT_ITEM_START_DATASET_KEY]: String(continues.start),
+    }),
+    [continues],
+  );
+  return (
+    <View style={styles.indent(piece.depth)} dataSet={dataSet}>
+      {children}
+    </View>
+  );
+}
+
+function slotKeysOf(piece: MarkdownPiece): string[] {
+  return piece.slots.map((slot) => slot.key);
+}
+
+const OutputBlock = memo(function OutputBlock({
+  index,
+  blockText,
+  renderMarkdown,
+  pending,
+  delivered,
+}: OutputBlockProps) {
+  const cards = useMemo(
+    () => placeCards({ pending, delivered, blockText }),
+    [blockText, delivered, pending],
+  );
+  const pieces = useMemo(
+    () => splitMarkdownAtSlots(blockText, new Set(cards.afterSlots.keys())),
+    [blockText, cards],
+  );
+  // A slot the split didn't find still shows its cards, after the block.
+  const afterBlock = useMemo(() => {
+    const placed = new Set(pieces.flatMap(slotKeysOf));
+    const unplaced = [...cards.afterSlots].filter(([key]) => !placed.has(key));
+    if (unplaced.length === 0) return cards.afterBlock;
+    const groups = [cards.afterBlock, ...unplaced.map(([, group]) => group)];
+    return {
+      pending: groups.flatMap((group) => group.pending),
+      delivered: groups.flatMap((group) => group.delivered),
+    };
+  }, [cards, pieces]);
+  const dataSet = useMemo(() => ({ [OUTPUT_BLOCK_DATASET_KEY]: String(index) }), [index]);
+  return (
+    <View dataSet={dataSet}>
+      <MarkdownBlockStack>
+        {pieces.map((piece) => (
+          <Fragment key={piece.key}>
+            {piece.continues ? (
+              <ContinuedPiece piece={piece} continues={piece.continues}>
+                {renderMarkdown(piece.text)}
+              </ContinuedPiece>
+            ) : (
+              renderMarkdown(piece.text)
+            )}
+            {piece.slots.map((slot) => {
+              const group = cards.afterSlots.get(slot.key);
+              return group ? (
+                <OutputCommentCards
+                  key={slot.key}
+                  cards={group}
+                  blockText={blockText}
+                  depth={slot.depth}
+                />
+              ) : null;
+            })}
+          </Fragment>
+        ))}
+        <OutputCommentCards cards={afterBlock} blockText={blockText} />
+      </MarkdownBlockStack>
+    </View>
+  );
+});
+
+function OutputCommentCards({ cards, blockText, depth = 0 }: OutputCommentCardsProps) {
   const { draftKey, serverId, agentId, surfaceId, blocksOf } = useStreamComments();
   const composer = useOutputCommentsComposer();
   const hasPending = composer !== null && cards.pending.length > 0;
@@ -401,7 +517,7 @@ function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
   // Marked as no part of the output, since cards can sit inside it: copy and find skip them.
   return (
     <View
-      style={styles.container}
+      style={depth > 0 ? [styles.container, styles.indent(depth)] : styles.container}
       dataSet={markdownCopyDataSet.ignore}
       testID="output-comment-rows"
     >
@@ -433,10 +549,19 @@ function OutputCommentCards({ cards, blockText }: OutputCommentCardsProps) {
   );
 }
 
+/** `data-output-block`, the block index a reply's block container carries. */
+const OUTPUT_BLOCK_DATASET_KEY = "outputBlock";
+/** `data-output-item-parent` and `-start`, read by `endItemPath` in `selection.web.ts`. */
+const OUTPUT_ITEM_PARENT_DATASET_KEY = "outputItemParent";
+const OUTPUT_ITEM_START_DATASET_KEY = "outputItemStart";
+// ponytail: the list indent of `createMarkdownStyles` (`list.marginLeft`); read it if that varies.
+const LIST_INDENT = 20;
+
 const styles = StyleSheet.create((theme) => ({
   container: {
     gap: theme.spacing[2],
-    marginTop: theme.spacing[2],
-    marginBottom: theme.spacing[3],
   },
+  indent: (depth: number) => ({
+    marginLeft: depth * LIST_INDENT,
+  }),
 }));

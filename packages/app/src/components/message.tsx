@@ -8,6 +8,7 @@ import {
   AttachmentThumbnail,
 } from "@/components/attachment-pill";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
+import { MarkdownBlocksContext } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
@@ -21,6 +22,7 @@ import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import { setAssistantMessageHeight } from "@/utils/assistant-message-height-estimate";
+import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { isRenderProfileEnabled } from "@/utils/render-profiler";
 import { writeMarkdownToRichClipboard } from "@/utils/rich-clipboard";
 import { getDefaultMarkdownClipboardEnvironment } from "@/utils/rich-clipboard-default-environment";
@@ -1213,6 +1215,25 @@ export const AssistantMessage = memo(function AssistantMessage({
   const measureMessage = useStableEvent((event: import("react-native").LayoutChangeEvent) => {
     setAssistantMessageHeight({ markdown: revealedMessage, ...event.nativeEvent.layout });
   });
+  const isStreaming = phase !== "complete" || revealedMessage.length < renderedMessage.text.length;
+  const renderMarkdown = useCallback(
+    (text: string) => (
+      <MarkdownRenderer
+        text={text}
+        streaming={isStreaming}
+        client={client}
+        workspaceRoot={workspaceRoot}
+        serverId={serverId}
+      />
+    ),
+    [client, isStreaming, serverId, workspaceRoot],
+  );
+  const renderBlocks = useContext(MarkdownBlocksContext);
+  const isByBlock = renderBlocks !== null;
+  const blocks = useMemo(
+    () => (isByBlock ? splitMarkdownBlocks(revealedMessage) : null),
+    [isByBlock, revealedMessage],
+  );
   return (
     <View
       testID="assistant-message"
@@ -1220,13 +1241,9 @@ export const AssistantMessage = memo(function AssistantMessage({
       style={assistantContainerStyle}
       onLayout={measureMessage}
     >
-      <MarkdownRenderer
-        text={revealedMessage}
-        streaming={phase !== "complete" || revealedMessage.length < renderedMessage.text.length}
-        client={client}
-        workspaceRoot={workspaceRoot}
-        serverId={serverId}
-      />
+      {renderBlocks && blocks
+        ? renderBlocks({ blocks, renderMarkdown })
+        : renderMarkdown(revealedMessage)}
       {fullMessageByteLength !== null ? (
         <Text
           testID="assistant-message-capped-notice"

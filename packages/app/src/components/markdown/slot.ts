@@ -1,12 +1,16 @@
 import { createContext, type ReactNode } from "react";
 
+export interface MarkdownBlocksInput {
+  /** The reply's Markdown blocks, as `splitMarkdownBlocks` splits what is revealed of it. */
+  blocks: readonly string[];
+  /** Renders a piece of Markdown as the reply renders its text. */
+  renderMarkdown: (text: string) => ReactNode;
+}
+
 /**
- * A place in a block's Markdown: after its top-level node `node`, counted as the body's children,
- * after the list item at `item`, the path from `getMarkdownListItemPath`, or after the body's last
- * child for top-level nodes from `rest` on, which the body didn't render.
+ * Lays out a reply's blocks with what goes between and inside them. Null renders the reply as one
+ * Markdown text.
  */
-export type MarkdownSlot = { node: number } | { item: readonly number[] } | { rest: number };
+export type RenderMarkdownBlocks = (input: MarkdownBlocksInput) => ReactNode;
 
-export type RenderMarkdownSlot = (slot: MarkdownSlot) => ReactNode;
-
-export const MarkdownSlotContext = createContext<RenderMarkdownSlot | null>(null);
+export const MarkdownBlocksContext = createContext<RenderMarkdownBlocks | null>(null);
