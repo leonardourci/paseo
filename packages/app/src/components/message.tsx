@@ -7,9 +7,8 @@ import {
   AttachmentLabel,
   AttachmentThumbnail,
 } from "@/components/attachment-pill";
-import { referenceDefinitionsOf } from "@/components/markdown/fence/mermaid/segments";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
-import { MarkdownBlocksContext } from "@/components/markdown/slot";
+import { useMarkdownBlocks } from "@/components/markdown/slot";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
@@ -23,7 +22,6 @@ import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import { setAssistantMessageHeight } from "@/utils/assistant-message-height-estimate";
-import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { isRenderProfileEnabled } from "@/utils/render-profiler";
 import { writeMarkdownToRichClipboard } from "@/utils/rich-clipboard";
 import { getDefaultMarkdownClipboardEnvironment } from "@/utils/rich-clipboard-default-environment";
@@ -1229,21 +1227,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     ),
     [client, isStreaming, serverId, workspaceRoot],
   );
-  const renderBlocks = useContext(MarkdownBlocksContext);
-  const isByBlock = renderBlocks !== null;
-  const blocks = useMemo(
-    () => (isByBlock ? splitMarkdownBlocks(revealedMessage) : null),
-    [isByBlock, revealedMessage],
-  );
-  // A block renders on its own, so it leads with the reply's definitions to keep its references.
-  const definitions = useMemo(
-    () => (isByBlock ? referenceDefinitionsOf(revealedMessage) : ""),
-    [isByBlock, revealedMessage],
-  );
-  const renderBlockMarkdown = useCallback(
-    (text: string) => renderMarkdown(definitions ? `${definitions}\n\n${text}` : text),
-    [definitions, renderMarkdown],
-  );
+  const byBlock = useMarkdownBlocks(revealedMessage, renderMarkdown);
   return (
     <View
       testID="assistant-message"
@@ -1251,9 +1235,7 @@ export const AssistantMessage = memo(function AssistantMessage({
       style={assistantContainerStyle}
       onLayout={measureMessage}
     >
-      {renderBlocks && blocks
-        ? renderBlocks({ blocks, renderMarkdown: renderBlockMarkdown })
-        : renderMarkdown(revealedMessage)}
+      {byBlock ?? renderMarkdown(revealedMessage)}
       {fullMessageByteLength !== null ? (
         <Text
           testID="assistant-message-capped-notice"
