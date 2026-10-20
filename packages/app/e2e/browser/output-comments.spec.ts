@@ -22,7 +22,7 @@ import {
   assistantMessageText,
   badgeOnTopAt,
   cardImages,
-  cardPlaces,
+  cardsFollowReply,
   commentOn,
   composerPill,
   composerTray,
@@ -99,23 +99,8 @@ const LIST_RESPONSE = [
   "1. Ship the build",
 ].join("\n");
 
-// No blank line inside each block, so each holds two top-level nodes.
-const TWO_NODE_BLOCKS_RESPONSE = [
-  "# The parser",
-  "It reads the config.",
-  "",
-  "The parser is ready, in draft.",
-  "- Tokenize the source",
-  "- Build the tree",
-  "",
-  "Run this:",
-  "```sh",
-  "npm test",
-  "```",
-].join("\n");
-
-// A quote across the ordered list's items stays in one row; one from the paragraph after it,
-// through the bullet list, into the last runs across three.
+// A quote across the ordered list's items, and one from the paragraph after it, through the
+// bullet list, into the last paragraph.
 const ACROSS_ROWS_RESPONSE = [
   "Where each worktree stands:",
   "",
@@ -574,7 +559,7 @@ test("a note suggests files and skills but not commands", async ({ page }) => {
   }
 });
 
-test("a comment's card follows the list item its quote ends in, before and after sending", async ({
+test("cards follow their whole reply in the order their quotes read, before and after sending", async ({
   page,
 }) => {
   const agent = await openAnsweredAgent(page, {
@@ -587,73 +572,71 @@ test("a comment's card follows the list item its quote ends in, before and after
     await commentOn(page, { quote: "Tokenize", through: "the output", note: "all passes" });
     await commentOn(page, { quote: "Ship", note: "then ship" });
 
-    const places = [
-      { before: "Link each node", after: "Check each link" },
-      { before: "Check each link", after: "Emit the output" },
-      { before: "Emit the output", after: "Ship the build" },
-      { before: "Ship the build", after: null },
-    ];
-    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
-    await expectNotes(page, ["every node?", "why a tree?", "all passes", "then ship"]);
+    // The reply renders once, whole, and the cards follow it.
+    await expect(assistantMessageText(page)).toHaveCount(1);
+    await expect.poll(() => cardsFollowReply(page)).toBe(true);
+    await expectNotes(page, ["all passes", "why a tree?", "every node?", "then ship"]);
 
     await fillComposerDraft(page, "Please revise.");
     await composerLocator(page).press("Enter");
 
     await expect(pendingCards(page)).toHaveCount(0);
-    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
+    await expect(deliveredCards(page)).toHaveText(
+      [/all passes/, /why a tree\?/, /every node\?/, /then ship/],
+      { useInnerText: true },
+    );
+    await expect.poll(() => cardsFollowReply(page)).toBe(true);
 
+    // A fence sent before quotes anchored to the whole reply names a block and list item.
     await agent.client.sendAgentMessage(
       agent.agentId,
-      withOutputComments("", [
-        {
-          quote: "Ship the build",
-          note: "an item this list lacks",
-          startBlock: 1,
-          occurrence: 0,
-          isCode: false,
-          endItem: [9],
-        },
-      ]),
+      "```paseo-comment block=1 item=9\n> Ship the build\n\nan item this list lacks\n```",
     );
 
-    await expect
-      .poll(() => cardPlaces(deliveredCards(page)))
-      .toEqual([...places, { before: "Ship the build", after: null }]);
+    await expect(deliveredCards(page)).toHaveCount(5);
+    await expect(deliveredCards(page).last()).toContainText("an item this list lacks");
   } finally {
     await agent.cleanup();
   }
 });
 
-test("a comment's card follows the node its quote ends in when another node follows it in the block, before and after sending", async ({
+test("a pending comment whose quote its reply no longer holds shows as unresolved", async ({
   page,
 }) => {
   const agent = await openAnsweredAgent(page, {
-    repoPrefix: "output-comments-two-nodes-",
-    response: TWO_NODE_BLOCKS_RESPONSE,
+    repoPrefix: "output-comments-unresolved-",
+    response: RESPONSE,
   });
   try {
-    await commentOn(page, { quote: "parser", note: "which parser?" });
-    await commentOn(page, { quote: "in draft", note: "why a draft?" });
-    await commentOn(page, { quote: "Run this", note: "where?" });
+    await commentOn(page, { quote: "config", note: "which file?" });
+    await commentOn(page, { quote: "three", note: "why three?" });
+    await leaveFocusedField(page);
+    await expect(textBadges(page)).toHaveCount(2);
 
-    const places = [
-      { before: "The parser", after: "It reads the config." },
-      { before: "The parser is ready, in draft.", after: "Tokenize the source" },
-      { before: "Run this:", after: "npm test" },
-    ];
-    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
+    await page.evaluate(() => {
+      const key = "@paseo:output-comments";
+      const saved = JSON.parse(localStorage.getItem(key) ?? "{}");
+      for (const comments of Object.values(saved.state.drafts) as { quote: string }[][]) {
+        const config = comments.find((comment) => comment.quote === "config");
+        if (config) config.quote = "words the reply never had";
+      }
+      localStorage.setItem(key, JSON.stringify(saved));
+    });
+    await page.reload();
 
-    await fillComposerDraft(page, "Please revise.");
-    await composerLocator(page).press("Enter");
-
-    await expect(pendingCards(page)).toHaveCount(0);
-    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
+    await expect(pendingCards(page)).toHaveCount(2);
+    await expect(page.getByTestId("output-comment-unresolved")).toHaveText(
+      "Quote not found: words the reply never had",
+    );
+    // Its quote is painted nowhere, while the other's still is.
+    await expectBadges(page, [2]);
+    await expectCommentHighlights(page, [{ text: THREE_QUOTE, tint: "pending" }]);
   } finally {
     await agent.cleanup();
   }
 });
 
-test("a card on a node or list item the message's render cap leaves out follows what did render", async ({
+test("a card on a quote the message's render cap leaves out still follows the reply", async ({
   page,
 }) => {
   const capped = "Long ".repeat(7_000).trim();
@@ -663,12 +646,12 @@ test("a card on a node or list item the message's render cap leaves out follows 
   });
   try {
     await expect(page.getByTestId("assistant-message-capped-notice")).toBeVisible();
-    const comment = { startBlock: 0, occurrence: 0, isCode: false };
+    const comment = { occurrence: 0, isCode: false };
     await agent.client.sendAgentMessage(
       agent.agentId,
       withOutputComments("", [
         { ...comment, quote: "Heading", note: "past the cap" },
-        { ...comment, quote: "one", note: "an item past the cap", endItem: [0] },
+        { ...comment, quote: "one", note: "an item past the cap" },
       ]),
     );
 
@@ -679,7 +662,7 @@ test("a card on a node or list item the message's render cap leaves out follows 
   }
 });
 
-test("a quote across list items or rows paints each row and places at its end, before and after sending", async ({
+test("a quote across list items and paragraphs paints as one, before and after sending", async ({
   page,
 }) => {
   const agent = await openAnsweredAgent(page, {
@@ -690,30 +673,26 @@ test("a quote across list items or rows paints each row and places at its end, b
     await commentOn(page, { quote: "currency-pt-br", through: "38 and 51", note: "status?" });
     await commentOn(page, { quote: "warms up", through: "Then the", note: "all of it?" });
 
-    const places = [
-      { before: "analytics", after: null },
-      { before: "Then the parser rests.", after: null },
-    ];
-    // A copy splits the bullet list into a block per item; the list's row takes all three back.
     const painted = (tints: ["pending" | "delivered", "active" | "delivered"]) =>
       expectCommentHighlights(page, [
         {
           text: "[currency-pt-br worktree: 21 files, covering the R$ cut-off fix. It is not in 1.15.0.analytics and installments worktrees: 38 and 51] files differ from ",
           tint: tints[0],
         },
-        { text: "The parser [warms up first.]", tint: tints[1] },
-        { text: "[Tokenize the sourceBuild the treeEmit the output]", tint: tints[1] },
-        { text: "[Then the] parser rests.", tint: tints[1] },
+        {
+          text: "The parser [warms up first.Tokenize the sourceBuild the treeEmit the outputThen the] parser rests.",
+          tint: tints[1],
+        },
       ]);
     await painted(["pending", "active"]);
-    await expect.poll(() => cardPlaces(pendingCards(page))).toEqual(places);
+    await expect.poll(() => cardsFollowReply(page)).toBe(true);
 
     await fillComposerDraft(page, "Please revise.");
     await composerLocator(page).press("Enter");
 
     await expect(pendingCards(page)).toHaveCount(0);
     await painted(["delivered", "delivered"]);
-    await expect.poll(() => cardPlaces(deliveredCards(page))).toEqual(places);
+    await expect(deliveredCards(page)).toHaveCount(2);
   } finally {
     await agent.cleanup();
   }
@@ -897,7 +876,6 @@ test("a sent comment on text no output holds shows its quote as plain text", asy
         {
           quote: "The **cache** is warm",
           note: "from an older session",
-          startBlock: 0,
           occurrence: 0,
           isCode: false,
         },

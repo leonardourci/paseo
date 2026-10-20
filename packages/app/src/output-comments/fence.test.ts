@@ -9,11 +9,10 @@ import {
 const comment: OutputComment = {
   quote: "Move the timeout to 20s",
   note: "Keep 8s.",
-  startBlock: 2,
   occurrence: 0,
   isCode: false,
 };
-const FENCED = "```paseo-comment block=2\n> Move the timeout to 20s\n\nKeep 8s.\n```";
+const FENCED = "```paseo-comment\n> Move the timeout to 20s\n\nKeep 8s.\n```";
 
 describe("withOutputComments", () => {
   it("returns the text unchanged when there are no comments", () => {
@@ -44,12 +43,11 @@ describe("withOutputComments", () => {
     const quoted: OutputComment = {
       quote: "```ts\nconst a = 1;\n```",
       note: "why?",
-      startBlock: 0,
       occurrence: 0,
       isCode: false,
     };
     const text = withOutputComments("", [quoted]);
-    expect(text).toBe("````paseo-comment block=0\n> ```ts\n> const a = 1;\n> ```\n\nwhy?\n````");
+    expect(text).toBe("````paseo-comment\n> ```ts\n> const a = 1;\n> ```\n\nwhy?\n````");
     expect(parseOutputComments(text).comments).toEqual([{ ...quoted, position: 0 }]);
   });
 });
@@ -59,7 +57,6 @@ describe("parseOutputComments", () => {
     const second: OutputComment = {
       quote: "line one\n\nline three",
       note: "> not a quote\nsecond line",
-      startBlock: 0,
       occurrence: 3,
       isCode: false,
     };
@@ -112,35 +109,43 @@ describe("parseOutputComments", () => {
     [
       "a quote of raw code",
       { ...comment, quote: "x = 1\n# comment\n\n  y = 2", isCode: true },
-      "```paseo-comment block=2 code\n> x = 1\n> # comment\n>\n>   y = 2\n\nKeep 8s.\n```",
+      "```paseo-comment code\n> x = 1\n> # comment\n>\n>   y = 2\n\nKeep 8s.\n```",
     ],
     [
       "which repeat of the quote was meant",
       { ...comment, occurrence: 2 },
-      "```paseo-comment block=2 occ=2\n> Move the timeout to 20s\n\nKeep 8s.\n```",
+      "```paseo-comment occ=2\n> Move the timeout to 20s\n\nKeep 8s.\n```",
     ],
     [
       "which assistant message back from the turn the quote came from",
       { ...comment, occurrence: 1, messageOrdinal: 3 },
-      "```paseo-comment block=2 occ=1 msg=3\n> Move the timeout to 20s\n\nKeep 8s.\n```",
-    ],
-    [
-      "the top-level list item the quote ends in",
-      { ...comment, messageOrdinal: 1, endItem: [2], isCode: true },
-      "```paseo-comment block=2 msg=1 item=2 code\n> Move the timeout to 20s\n\nKeep 8s.\n```",
-    ],
-    [
-      "the nested list item the quote ends in",
-      { ...comment, messageOrdinal: 1, endItem: [1, 0, 3], isCode: true },
-      "```paseo-comment block=2 msg=1 item=1.0.3 code\n> Move the timeout to 20s\n\nKeep 8s.\n```",
+      "```paseo-comment occ=1 msg=3\n> Move the timeout to 20s\n\nKeep 8s.\n```",
     ],
   ])("round-trips %s", (_, sent, text) => {
     expect(withOutputComments("", [sent])).toBe(text);
     expect(parseOutputComments(text).comments).toEqual([{ ...sent, position: 0 }]);
   });
 
-  it("reads no list item from a fence without one", () => {
-    expect(parseOutputComments(FENCED).comments[0]).not.toHaveProperty("endItem");
+  it.each<[string, string, Partial<OutputComment>]>([
+    [
+      "a list item, ignored",
+      "```paseo-comment block=0 occ=1 msg=1 item=1.0.3 code\n> q\n\nn\n```",
+      { occurrence: 1, messageOrdinal: 1, isCode: true },
+    ],
+    [
+      "an occurrence in the first block, which counts in the whole reply",
+      "```paseo-comment block=0 occ=2\n> q\n\nn\n```",
+      { occurrence: 2 },
+    ],
+    [
+      "an occurrence in a later block, which falls back to the first",
+      "```paseo-comment block=3 occ=2 msg=2\n> q\n\nn\n```",
+      { occurrence: 0, messageOrdinal: 2 },
+    ],
+  ])("reads a fence sent before whole-reply quotes, with %s", (_, text, read) => {
+    expect(parseOutputComments(text).comments).toEqual([
+      { quote: "q", note: "n", occurrence: 0, isCode: false, ...read, position: 0 },
+    ]);
   });
 });
 
@@ -148,9 +153,9 @@ describe("parseOutputComments on text without comments", () => {
   it.each([
     ["a message without comments", "  indented\n\n\n\nafter three blank lines\n"],
     ["an ordinary code fence", "```ts\nconst a = 1;\n```"],
-    ["a fence with no quote", "```paseo-comment block=0\njust text\n```"],
-    ["a fence with no note", "```paseo-comment block=0\n> quoted\n```"],
-    ["a fence with no block", "```paseo-comment\n> q\n\nn\n```"],
+    ["a fence with no quote", "```paseo-comment\njust text\n```"],
+    ["a fence with no note", "```paseo-comment\n> quoted\n```"],
+    ["a fence with another info string", "```paseo-commentary\n> q\n\nn\n```"],
     ["a fence with a malformed list item", "```paseo-comment block=0 item=1.\n> q\n\nn\n```"],
     [
       "a fence with a number too long to read",

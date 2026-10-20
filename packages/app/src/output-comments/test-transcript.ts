@@ -1,8 +1,8 @@
 type TranscriptRow = [messageId: string, html: string];
 
 /**
- * Assistant messages as the transcript renders them: a row per message, holding a container per
- * Markdown block. Consecutive rows of one message are its blocks, in order.
+ * Assistant messages as the transcript renders them: a row per message, holding its reply as one
+ * Markdown text. Consecutive entries of one message are its blocks, in order.
  */
 export function mountTranscript(...rows: TranscriptRow[]): HTMLElement {
   const messages: { messageId: string; blocks: string[] }[] = [];
@@ -17,7 +17,7 @@ export function mountTranscript(...rows: TranscriptRow[]): HTMLElement {
       ({ messageId, blocks }) => `
         <div data-history-row-id="${messageId}" data-message-id="${messageId}" data-row-kind="assistant_message">
           <div data-testid="assistant-message" data-message-text="true">
-            ${blocks.map((html, index) => `<div data-output-block="${index}"><div>${html}</div></div>`).join("")}
+            ${blocks.join("")}
           </div>
         </div>`,
     )

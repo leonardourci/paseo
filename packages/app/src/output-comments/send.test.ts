@@ -15,8 +15,6 @@ import {
 const noted: PendingOutputComment = {
   id: "c1",
   sourceItemId: "a1",
-  startBlock: 1,
-  endBlock: 1,
   quote: "beta",
   occurrence: 0,
   isCode: false,
@@ -26,8 +24,6 @@ const noted: PendingOutputComment = {
 const blank: PendingOutputComment = {
   id: "c2",
   sourceItemId: "a1",
-  startBlock: 2,
-  endBlock: 2,
   quote: "gamma",
   occurrence: 0,
   isCode: false,
@@ -35,7 +31,7 @@ const blank: PendingOutputComment = {
   imageIds: [],
 };
 const pending = [noted, blank];
-const FENCED = "```paseo-comment block=1\n> beta\n\nwhy?\n```";
+const FENCED = "```paseo-comment\n> beta\n\nwhy?\n```";
 
 describe("sendableComments", () => {
   it("keeps only the comments that would be sent", () => {
@@ -111,7 +107,7 @@ describe("prepareOutgoingText", () => {
     expect(
       prepareOutgoingText({ text: "reply", pending: [noted, older], imageIds: [], loaded: ["a1"] }),
     ).toEqual({
-      text: "reply\n\n```paseo-comment block=1 msg=1\n> beta\n\nwhy?\n```",
+      text: "reply\n\n```paseo-comment msg=1\n> beta\n\nwhy?\n```",
       sent: [{ id: "c1", note: "why?" }],
       lastOutputId: "a1",
     });
@@ -140,7 +136,7 @@ describe("prepareOutgoingText", () => {
         imageIds: ["other", "early", "late"],
         loaded: undefined,
       }).text,
-    ).toBe("```paseo-comment block=1\n> beta\n\nwhy?\n[Image 2] [Image 3]\n```");
+    ).toBe("```paseo-comment\n> beta\n\nwhy?\n[Image 2] [Image 3]\n```");
   });
 
   it("drops images that are not sent", () => {
@@ -152,14 +148,14 @@ describe("prepareOutgoingText", () => {
         imageIds: ["kept"],
         loaded: undefined,
       }).text,
-    ).toBe("```paseo-comment block=1\n> beta\n\nwhy?\n[Image 1]\n```");
+    ).toBe("```paseo-comment\n> beta\n\nwhy?\n[Image 1]\n```");
   });
 
   it.each([
     [
       "sends a blank note that has a sent image",
       ["shot"],
-      "reply\n\n```paseo-comment block=2\n> gamma\n\n[Image 1]\n```",
+      "reply\n\n```paseo-comment\n> gamma\n\n[Image 1]\n```",
     ],
     ["leaves out a blank note whose images are all gone", ["other"], "reply"],
   ])("%s", (_, imageIds, text) => {
@@ -211,25 +207,21 @@ describe("restoreOutgoingText", () => {
     ).toEqual([{ ...noted, id: expect.any(String) }]);
   });
 
-  it("keeps the list item a comment ends in only while it stays on the block it named", () => {
-    const inItem = { ...noted, endItem: [0] };
-    const restoredItem = (sent: PendingOutputComment) => {
-      const { text } = prepareOutgoingText({
-        text: "",
-        pending: [sent],
-        imageIds: [],
-        loaded: undefined,
-      });
-      return restoreOutgoingText({ items, text, imageIds: [], lastOutputId: undefined }).comments[0]
-        ?.endItem;
-    };
-    expect(restoredItem(inItem)).toEqual([0]);
-    expect(restoredItem({ ...inItem, startBlock: 0, endBlock: 0 })).toBeUndefined();
+  it("restores a comment on its quote and occurrence, without the context it was made with", () => {
+    const { text } = prepareOutgoingText({
+      text: "",
+      pending: [{ ...noted, prefix: "alpha", suffix: "." }],
+      imageIds: [],
+      loaded: undefined,
+    });
+    expect(
+      restoreOutgoingText({ items, text, imageIds: [], lastOutputId: undefined }).comments,
+    ).toEqual([{ ...noted, id: expect.any(String) }]);
   });
 
   it("keeps a comment whose output is gone in the text", () => {
     const text = withOutputComments("reply", [
-      { quote: "absent", note: "n", startBlock: 0, occurrence: 0, isCode: false },
+      { quote: "absent", note: "n", occurrence: 0, isCode: false },
     ]);
     expect(restoreOutgoingText({ items, text, imageIds: [], lastOutputId: undefined })).toEqual({
       text,
@@ -308,7 +300,7 @@ describe("placeQueuedText", () => {
 
   it("moves the ordinals back past output written after the message was queued", () => {
     expect(placeQueuedText({ items: output, text: queued, lastOutputId: "a1" })).toBe(
-      "reply\n\n```paseo-comment block=1 msg=3\n> beta\n\nwhy?\n```",
+      "reply\n\n```paseo-comment msg=3\n> beta\n\nwhy?\n```",
     );
   });
 

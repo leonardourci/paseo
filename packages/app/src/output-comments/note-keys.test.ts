@@ -10,8 +10,6 @@ function openComment(note: string): string {
     {
       draftKey: DRAFT_KEY,
       sourceItemId: "a1",
-      startBlock: 0,
-      endBlock: 0,
       quote: "alpha",
       occurrence: 0,
       isCode: false,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { rangesForQuote } from "./ranges.web";
+import { rangeForQuote } from "./ranges.web";
 import { readCommentableSelection } from "./selection.web";
 import {
   inlineCode,
@@ -13,10 +13,6 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
-
-function noBlocks(): readonly string[] {
-  return [];
-}
 
 function mountHeading(html: string): { root: HTMLElement; heading: HTMLElement } {
   const root = mountMessage(`<h2>${html}</h2>`);
@@ -56,7 +52,6 @@ describe("readCommentableSelection occurrence", () => {
       readCommentableSelection({
         selection: select([text, same], [text, same + 1]),
         root,
-        blocksOf: noBlocks,
       }),
     ).toMatchObject({
       quote: "m",
@@ -67,7 +62,6 @@ describe("readCommentableSelection occurrence", () => {
       readCommentableSelection({
         selection: select([text, merge], [text, merge + 1]),
         root,
-        blocksOf: noBlocks,
       }),
     ).toMatchObject({
       quote: "m",
@@ -82,7 +76,6 @@ describe("readCommentableSelection occurrence", () => {
       readCommentableSelection({
         selection: select([text, 5], [text, 14]),
         root,
-        blocksOf: noBlocks,
       }),
     ).toMatchObject({
       quote: "very very",
@@ -98,7 +91,7 @@ describe("readCommentableSelection occurrence", () => {
     const before = textOf(second?.previousSibling);
     const bold = textOf(second?.firstChild);
     const selection = select([before, before.length], [bold, 4]);
-    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject({
+    expect(readCommentableSelection({ selection, root })).toMatchObject({
       occurrence: 1,
     });
   });
@@ -109,7 +102,7 @@ function paragraphTexts(root: HTMLElement): Text[] {
 }
 
 describe("readCommentableSelection across rows", () => {
-  it("keeps a triple-clicked paragraph to its own block", () => {
+  it("keeps a triple-clicked paragraph to its own text", () => {
     const root = mountMessage(paragraph("alpha beta"), paragraph("gamma"));
     const [first, next] = paragraphTexts(root);
     if (!first || !next) throw new Error("Expected two paragraphs");
@@ -117,39 +110,42 @@ describe("readCommentableSelection across rows", () => {
       readCommentableSelection({
         selection: select([first, 0], [next, 0]),
         root,
-        blocksOf: noBlocks,
       }),
-    ).toMatchObject({
-      startBlock: 0,
-      endBlock: 0,
-      quote: "alpha beta",
-    });
+    ).toMatchObject({ quote: "alpha beta", suffix: "gamma" });
   });
 
-  it("groups a quote's pieces by the Markdown of a row that isn't rendered", () => {
-    const root = mountMessage(
-      ["alpha", "alpha", "beta", "gamma"].map(paragraph).join(""),
-      paragraph("unrendered"),
-      paragraph("delta"),
-    );
-    // A copy across rows reads them from the chat they are in.
+  it("counts repeats across the whole reply, with the text around the one selected", () => {
+    const root = mountMessage(paragraph("retry now"), paragraph("then retry later"));
+    const [, second] = paragraphTexts(root);
+    if (!second) throw new Error("Expected two paragraphs");
+    expect(
+      readCommentableSelection({ selection: select([second, 5], [second, 10]), root }),
+    ).toMatchObject({ quote: "retry", occurrence: 1, prefix: "retry now then", suffix: "later" });
+  });
+
+  it("quotes across paragraphs of the reply", () => {
+    const root = mountMessage(paragraph("alpha"), paragraph("beta"), paragraph("gamma"));
+    const [first, , third] = paragraphTexts(root);
+    if (!first || !third) throw new Error("Expected three paragraphs");
+    // A copy across paragraphs reads them from the chat they are in.
     root.dataset.testid = "agent-chat-scroll";
-    root.querySelector('[data-output-block="1"]')?.remove();
-    const [, second, , , delta] = paragraphTexts(root);
-    if (!second || !delta) throw new Error("Expected the rendered paragraphs");
-    const selection = select([second, 0], [delta, 5]);
-    // Block 1 holds "beta gamma", leaving the first row only "alpha": its second one.
-    const blocks = ["alpha", "Then beta gamma.", "delta"];
-    expect(readCommentableSelection({ selection, root, blocksOf: () => blocks })).toMatchObject({
-      quote: "alpha\n\nbeta\n\ngamma\n\ndelta",
-      startBlock: 0,
-      endBlock: 2,
-      occurrence: 1,
-    });
-    // Without it the first row keeps "alpha beta", which only the second "alpha" starts.
-    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject({
-      occurrence: 0,
-    });
+    expect(
+      readCommentableSelection({ selection: select([first, 2], [third, 3]), root }),
+    ).toMatchObject({ quote: "pha\n\nbeta\n\ngam", occurrence: 0 });
+  });
+
+  it("takes a selection in a reply still streaming in, whose quote paints once it is done", () => {
+    const root = mountMessage(paragraph("alpha beta"));
+    const reply = root.querySelector<HTMLElement>('[data-testid="assistant-message"]')!;
+    reply.dataset.messageStreaming = "true";
+    const [first] = paragraphTexts(root);
+    if (!first) throw new Error("Expected a paragraph");
+    const read = readCommentableSelection({ selection: select([first, 0], [first, 5]), root });
+    expect(read).toMatchObject({ quote: "alpha", suffix: "beta" });
+    if (!read) throw new Error("Expected a commentable selection");
+    expect(rangeForQuote({ root, anchor: read })).toBeNull();
+    delete reply.dataset.messageStreaming;
+    expect(String(rangeForQuote({ root, anchor: read }))).toBe("alpha");
   });
 
   it("refuses a selection that runs into another message's text", () => {
@@ -160,7 +156,6 @@ describe("readCommentableSelection across rows", () => {
       readCommentableSelection({
         selection: select([first, 0], [other, 2]),
         root,
-        blocksOf: noBlocks,
       }),
     ).toBeNull();
   });
@@ -174,112 +169,10 @@ describe("readCommentableSelection in code", () => {
       readCommentableSelection({
         selection: select([code, 0], [code, 15]),
         root,
-        blocksOf: noBlocks,
       }),
     ).toMatchObject({
       quote: "x = 1\n# comment",
       isCode: true,
-    });
-  });
-});
-
-function listItem(text: string, nestedList = ""): string {
-  return `<li>${paragraph(text)}${nestedList}</li>`;
-}
-
-function list(tag: "ul" | "ol", ...items: string[]): string {
-  return `<${tag}>${items.join("")}</${tag}>`;
-}
-
-function textOfParagraph(root: HTMLElement, text: string): Text {
-  const found = paragraphTexts(root).find((node) => node.data === text);
-  if (!found) throw new Error(`Expected a paragraph reading "${text}"`);
-  return found;
-}
-
-describe("readCommentableSelection list item", () => {
-  const NESTED = list(
-    "ul",
-    listItem("alpha"),
-    listItem("beta", list("ul", listItem("beta one"), listItem("beta two"))),
-    listItem("gamma"),
-  );
-
-  it.each([
-    {
-      name: "records the top-level item the selection ends in",
-      html: NESTED,
-      start: ["alpha", 0] as const,
-      end: ["beta", 4] as const,
-      read: { quote: "alpha\n\nbeta", endBlock: 0, endItem: [1] },
-    },
-    {
-      name: "records a nested item by its path",
-      html: NESTED,
-      start: ["beta two", 0] as const,
-      end: ["beta two", 8] as const,
-      read: { quote: "beta two", endBlock: 0, endItem: [1, 1] },
-    },
-    {
-      name: "puts an end at the start of the next item in the item before, as a triple-click does",
-      html: NESTED,
-      start: ["beta", 0] as const,
-      end: ["beta one", 0] as const,
-      read: { quote: "beta", endBlock: 0, endItem: [1] },
-    },
-    {
-      name: "counts on into an ordered list that follows a bullet list in the same block",
-      html: list("ul", listItem("alpha"), listItem("beta")) + list("ol", listItem("gamma")),
-      start: ["gamma", 0] as const,
-      end: ["gamma", 5] as const,
-      read: { quote: "gamma", endBlock: 0, endItem: [2] },
-    },
-    {
-      name: "reads a nested list continued after a card as the source numbers it",
-      html: `${list("ul", listItem("alpha", list("ul", listItem("alpha one"))))}<div data-output-item-parent="0" data-output-item-start="1">${list("ul", listItem("alpha two"))}</div>${list("ul", listItem("beta"))}`,
-      start: ["alpha two", 0] as const,
-      end: ["alpha two", 9] as const,
-      read: { quote: "alpha two", endBlock: 0, endItem: [0, 1] },
-    },
-    {
-      name: "counts top-level items past a continued nested list",
-      html: `${list("ul", listItem("alpha", list("ul", listItem("alpha one"))))}<div data-output-item-parent="0" data-output-item-start="1">${list("ul", listItem("alpha two"))}</div>${list("ul", listItem("beta"))}`,
-      start: ["beta", 0] as const,
-      end: ["beta", 4] as const,
-      read: { quote: "beta", endBlock: 0, endItem: [1] },
-    },
-    {
-      name: "records no item inside a blockquote",
-      html: `<blockquote>${list("ul", listItem("quoted"))}</blockquote>`,
-      start: ["quoted", 0] as const,
-      end: ["quoted", 6] as const,
-      read: { quote: "quoted", endBlock: 0, endItem: undefined },
-    },
-  ])("$name", ({ html, start, end, read }) => {
-    const root = mountMessage(html);
-    const selection = select(
-      [textOfParagraph(root, start[0]), start[1]],
-      [textOfParagraph(root, end[0]), end[1]],
-    );
-    expect(readCommentableSelection({ selection, root, blocksOf: noBlocks })).toMatchObject(read);
-  });
-
-  it.each([
-    ["a paragraph", paragraph("plain text"), "p"],
-    ["a table cell", "<table><tbody><tr><td>plain text</td></tr></tbody></table>", "td"],
-    ["a code block", "<pre><code>plain text</code></pre>", "code"],
-  ])("records no item when the selection ends in %s", (_, html, textSelector) => {
-    const root = mountMessage(html);
-    const text = textOf(root.querySelector(textSelector)?.firstChild);
-    expect(
-      readCommentableSelection({
-        selection: select([text, 0], [text, 5]),
-        root,
-        blocksOf: noBlocks,
-      }),
-    ).toMatchObject({
-      quote: "plain",
-      endItem: undefined,
     });
   });
 });
@@ -296,16 +189,12 @@ describe("readCommentableSelection across ordered list items", () => {
     const itemStart = textReading(root, "currency-pt-br");
     const and = textReading(root, " and ");
     const selection = select([itemStart, 0], [and, 4]);
-    const read = readCommentableSelection({ selection, root, blocksOf: noBlocks });
+    const read = readCommentableSelection({ selection, root });
     expect(read).toMatchObject({
       // Copying part of a semantic list keeps the items, not their numbers.
       quote: "`currency-pt-br` worktree: 21 files. It is not in 1.15.0.\n\n`analytics` and",
-      endBlock: 0,
-      endItem: [1],
     });
     if (!read) throw new Error("Expected a commentable selection");
-    expect(rangesForQuote({ root, anchor: read, blocks: [] }).map(String)).toEqual([
-      String(selection.getRangeAt(0)),
-    ]);
+    expect(String(rangeForQuote({ root, anchor: read }))).toBe(String(selection.getRangeAt(0)));
   });
 });

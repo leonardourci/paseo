@@ -9,7 +9,7 @@ import {
 } from "./mock-agent";
 
 export interface CommentHighlight {
-  /** The text node the quote sits in, with the quoted part in brackets. */
+  /** The quote in brackets, with the rest of the text nodes it starts and ends in. */
   text: string;
   tint: Tint | number;
 }
@@ -59,12 +59,6 @@ interface CommentOnInput {
   through?: string;
 }
 
-interface CardPlace {
-  /** The first text of what renders just before the card's group, null for nothing. */
-  before: string | null;
-  after: string | null;
-}
-
 interface ClipboardContent {
   text?: string;
   imageBase64?: string;
@@ -108,10 +102,7 @@ export async function openAnsweredAgent(
   }
 }
 
-/**
- * The reply's text, one element per Markdown block. A card on a list item, or on a node that another
- * node follows, renders inside it.
- */
+/** The reply's text, rendered whole as one Markdown text; its comment cards follow it. */
 export function assistantMessageText(page: Page): Locator {
   return page.getByTestId("assistant-message");
 }
@@ -311,42 +302,23 @@ export async function commentOn(
   await page.keyboard.type(note.slice(1));
 }
 
-/**
- * What each card follows and precedes in its Markdown block: the first text of the item or node
- * holding the nearest text before it, and after it.
- */
-export async function cardPlaces(cards: Locator): Promise<CardPlace[]> {
-  return cards.evaluateAll((elements) => {
-    const HOLDERS = "li, p, h1, h2, h3, h4, h5, h6, pre, td, th, blockquote";
-    const IGNORED = '[data-paseo-markdown-ignore="true"]';
-    function texts(element: Element): Text[] {
-      const found: Text[] = [];
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (node instanceof Text && node.data.trim() && !node.parentElement?.closest(IGNORED)) {
-          found.push(node);
-        }
-      }
-      return found;
-    }
-    function holderText(text: Text | undefined): string | null {
-      if (!text) return null;
-      const holder = text.parentElement?.closest(HOLDERS) ?? text.parentElement;
-      return holder ? (texts(holder)[0]?.data.trim() ?? null) : null;
-    }
-    return elements.map((card) => {
-      const group = card.closest('[data-testid="output-comment-rows"]');
-      const block = group?.closest("[data-output-block]");
-      if (!group || !block) return { before: null, after: null };
-      const blockTexts = texts(block);
-      const isBefore = (text: Text) =>
-        Boolean(group.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_PRECEDING);
-      return {
-        before: holderText(blockTexts.findLast(isBefore)),
-        after: holderText(blockTexts.find((text) => !isBefore(text))),
-      };
-    });
-  });
+/** Whether every reply's comment cards follow its Markdown text, outside it, in its row. */
+export async function cardsFollowReply(page: Page): Promise<boolean> {
+  const groups = page.getByTestId("output-comment-rows");
+  if ((await groups.count()) === 0) return false;
+  return groups.evaluateAll((elements) =>
+    elements.every((group) => {
+      const reply = group
+        .closest("[data-history-row-id]")
+        ?.querySelector('[data-testid="assistant-message"]');
+      return (
+        reply !== null &&
+        reply !== undefined &&
+        !reply.contains(group) &&
+        Boolean(reply.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+    }),
+  );
 }
 
 /** An alpha no tint paints stays a number, so a failure shows what was painted. */

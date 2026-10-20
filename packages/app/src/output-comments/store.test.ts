@@ -13,16 +13,12 @@ import {
 const DRAFT_KEY = "draft-1";
 const FIRST: QuoteAnchor = {
   sourceItemId: "a1",
-  startBlock: 0,
-  endBlock: 0,
   quote: "alpha",
   occurrence: 0,
   isCode: false,
 };
 const SECOND: QuoteAnchor = {
   sourceItemId: "a1",
-  startBlock: 2,
-  endBlock: 2,
   quote: "beta",
   occurrence: 0,
   isCode: false,
@@ -64,8 +60,7 @@ describe("useOutputCommentsStore", () => {
   it.each([
     ["a different quote", { ...FIRST, quote: "alphabet" }],
     ["the same quote in another output", { ...FIRST, sourceItemId: "a2" }],
-    ["the same quote in another paragraph", { ...FIRST, startBlock: 1, endBlock: 1 }],
-    ["the same quote repeated in the same paragraph", { ...FIRST, occurrence: 1 }],
+    ["the same quote repeated in the reply", { ...FIRST, occurrence: 1 }],
   ])("adds a second comment for %s", (_, other: QuoteAnchor) => {
     const first = addComment(FIRST, "one");
     const second = addComment(other, "two");
@@ -301,7 +296,7 @@ describe("useOutputCommentsStore persistence", () => {
   const STORAGE_NAME = "@paseo:output-comments";
 
   it("brings the pending comments back after a reload", async () => {
-    const inItem: QuoteAnchor = { ...FIRST, endItem: [1, 0] };
+    const inItem: QuoteAnchor = { ...FIRST, prefix: "the", suffix: "cache" };
     const id = addComment(inItem, "why?");
     useOutputCommentsStore.getState().linkImage({ draftKey: DRAFT_KEY, id, imageId: "img-1" });
     const saved = await AsyncStorage.getItem(STORAGE_NAME);
@@ -315,7 +310,7 @@ describe("useOutputCommentsStore persistence", () => {
     expect(pendingComments()).toEqual([{ ...inItem, id, note: "why?", imageIds: ["img-1"] }]);
   });
 
-  it("loads comments saved before they recorded images or a list item", async () => {
+  it("loads comments saved before they recorded images or context", async () => {
     const saved = JSON.stringify({
       state: { drafts: { [DRAFT_KEY]: [{ ...FIRST, id: "c1", note: "why?" }] } },
       version: 1,
@@ -325,6 +320,29 @@ describe("useOutputCommentsStore persistence", () => {
 
     expect(pendingComments()).toEqual([{ ...FIRST, id: "c1", note: "why?", imageIds: [] }]);
     expect(await AsyncStorage.getItem(STORAGE_NAME)).toBe(saved);
+  });
+
+  it.each([
+    { name: "in the first block, keeping its occurrence", startBlock: 0, occurrence: 2 },
+    {
+      name: "in a later block, falling back to the first occurrence",
+      startBlock: 3,
+      occurrence: 0,
+    },
+  ])("loads a comment saved with its blocks $name", async ({ startBlock, occurrence }) => {
+    const legacy = { ...FIRST, startBlock, endBlock: 4, endItem: [1], occurrence: 2 };
+    await AsyncStorage.setItem(
+      STORAGE_NAME,
+      JSON.stringify({
+        state: { drafts: { [DRAFT_KEY]: [{ ...legacy, id: "c1", note: "why?" }] } },
+        version: 1,
+      }),
+    );
+    await useOutputCommentsStore.persist.rehydrate();
+
+    expect(pendingComments()).toEqual([
+      { ...FIRST, occurrence, id: "c1", note: "why?", imageIds: [] },
+    ]);
   });
 
   it("leaves the saved comments alone while streaming output is published", async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { QuoteAnchor } from "./fence";
-import { rangesForQuote } from "./ranges.web";
+import { rangeForQuote } from "./ranges.web";
 import { inlineCode, mountMessage, paragraph, renderedList } from "./test-transcript";
 
 afterEach(() => {
@@ -8,27 +8,21 @@ afterEach(() => {
 });
 
 function anchor(quote: Pick<QuoteAnchor, "quote"> & Partial<QuoteAnchor>): QuoteAnchor {
-  return { sourceItemId: "m1", startBlock: 0, endBlock: 0, occurrence: 0, isCode: false, ...quote };
+  return { sourceItemId: "m1", occurrence: 0, isCode: false, ...quote };
 }
 
-interface QuotedInput {
-  root: HTMLElement;
-  anchor: QuoteAnchor;
-  blocks?: string[];
+function quoted(root: HTMLElement, target: QuoteAnchor): string | null {
+  return rangeForQuote({ root, anchor: target })?.toString() ?? null;
 }
 
-function quoted({ blocks = [], ...input }: QuotedInput): string[] {
-  return rangesForQuote({ ...input, blocks }).map((range) => range.toString());
-}
-
-describe("rangesForQuote", () => {
+describe("rangeForQuote", () => {
   it("finds a quote that runs across list items", () => {
     const item = (text: string) =>
       `<div data-paseo-markdown-tag="li"><span data-paseo-markdown-ignore="true">•</span>${text}</div>`;
     const root = mountMessage(
       `<div data-paseo-markdown-tag="ul">${item("first item")}${item("second item")}</div>`,
     );
-    expect(quoted({ root, anchor: anchor({ quote: "item\n- second" }) })).toEqual(["item•second"]);
+    expect(quoted(root, anchor({ quote: "item\n- second" }))).toBe("item•second");
   });
 
   it("finds a quote that runs from inside one ordered list item into the next", () => {
@@ -40,36 +34,26 @@ describe("rangesForQuote", () => {
       ),
     );
     const quote = "`currency-pt-br` worktree: 21 files.\n\n2. `analytics` and";
-    expect(quoted({ root, anchor: anchor({ quote }) })).toEqual([
-      "currency-pt-br worktree: 21 files.analytics and",
-    ]);
+    expect(quoted(root, anchor({ quote }))).toBe("currency-pt-br worktree: 21 files.analytics and");
   });
 
-  it("keeps the blocks a row holds together when the quote runs on into the next row", () => {
+  it("finds a quote across paragraphs and lists as one range", () => {
     const root = mountMessage(
-      paragraph("Ready, in draft.") + renderedList("ul", "Tokenize the source"),
+      paragraph("Ready, in draft."),
+      renderedList("ul", "Tokenize the source"),
       paragraph("Run this:"),
     );
     const quote = "in draft.\n\n- Tokenize the source\n\nRun";
-    expect(quoted({ root, anchor: anchor({ quote, endBlock: 1 }) })).toEqual([
-      "in draft.Tokenize the source",
-      "Run",
-    ]);
+    expect(quoted(root, anchor({ quote }))).toBe("in draft.Tokenize the sourceRun");
   });
 
-  it("groups the quote's rows as when all are rendered, while a later one is not", () => {
-    const quote = "Start.\n\nReady.\n\n- one";
-    const blocks = ["Start.", "Ready.\n- one"];
-    const target = anchor({ quote, endBlock: 1 });
-    const allRendered = mountMessage(
-      paragraph("Start."),
-      paragraph("Ready.") + renderedList("ul", "one"),
+  it("finds a quote across a block with no text", () => {
+    const root = mountMessage(
+      paragraph("alpha"),
+      '<div data-paseo-markdown-tag="hr"></div>',
+      paragraph("gamma"),
     );
-    expect(quoted({ root: allRendered, anchor: target, blocks })).toEqual(["Start.", "Ready.one"]);
-    document.body.replaceChildren();
-
-    const firstRendered = mountMessage(paragraph("Start."));
-    expect(quoted({ root: firstRendered, anchor: target, blocks })).toEqual(["Start."]);
+    expect(quoted(root, anchor({ quote: "alpha\n\n* * *\n\ngamma" }))).toBe("alphagamma");
   });
 
   it("finds a quote that runs across table cells", () => {
@@ -77,7 +61,7 @@ describe("rangesForQuote", () => {
     const root = mountMessage(
       `<div data-paseo-markdown-tag="tr">${cell("left")}${cell("right")}</div>`,
     );
-    expect(quoted({ root, anchor: anchor({ quote: "left\nright" }) })).toEqual(["leftright"]);
+    expect(quoted(root, anchor({ quote: "left\nright" }))).toBe("leftright");
   });
 
   it("finds part of a code block as written", () => {
@@ -89,29 +73,36 @@ describe("rangesForQuote", () => {
     const root = mountMessage(
       `<div data-paseo-markdown-tag="pre"><span data-paseo-markdown-tag="code">${lines}</span></div>`,
     );
-    expect(quoted({ root, anchor: anchor({ quote: code, isCode: true }) })).toEqual([code]);
+    expect(quoted(root, anchor({ quote: code, isCode: true }))).toBe(code);
   });
 
   it("finds a repeat that overlaps the one before it", () => {
     const root = mountMessage(paragraph("very very very"));
-    const ranges = rangesForQuote({
-      root,
-      anchor: anchor({ quote: "very very", occurrence: 1 }),
-      blocks: [],
-    });
-    expect(ranges.map((range) => [range.startOffset, range.toString()])).toEqual([
-      [5, "very very"],
-    ]);
+    const range = rangeForQuote({ root, anchor: anchor({ quote: "very very", occurrence: 1 }) });
+    expect(range && [range.startOffset, range.toString()]).toEqual([5, "very very"]);
   });
 
-  it("keeps each piece on its own block past a block with no text", () => {
-    const root = mountMessage(
-      paragraph("alpha"),
-      '<div data-paseo-markdown-tag="hr"></div>',
-      paragraph("gamma"),
-    );
-    expect(
-      quoted({ root, anchor: anchor({ quote: "alpha\n\n* * *\n\ngamma", endBlock: 2 }) }),
-    ).toEqual(["alpha", "gamma"]);
+  it("counts repeats across the whole reply", () => {
+    const root = mountMessage(paragraph("retry now"), paragraph("retry later"));
+    const range = rangeForQuote({ root, anchor: anchor({ quote: "retry", occurrence: 1 }) });
+    expect(range?.startContainer.parentElement?.textContent).toBe("retry later");
+  });
+
+  it("follows the comment's context to its repeat", () => {
+    const root = mountMessage(paragraph("retry now"), paragraph("then retry later"));
+    const range = rangeForQuote({
+      root,
+      anchor: anchor({ quote: "retry", occurrence: 0, prefix: "now then", suffix: "later" }),
+    });
+    expect(range?.startContainer.parentElement?.textContent).toBe("then retry later");
+  });
+
+  it("finds nothing for a quote the reply lost, nor in a reply still streaming", () => {
+    const root = mountMessage(paragraph("retry now"));
+    expect(quoted(root, anchor({ quote: "gone" }))).toBeNull();
+    expect(quoted(root, anchor({ quote: "retry", occurrence: 1 }))).toBeNull();
+    root.querySelector<HTMLElement>('[data-testid="assistant-message"]')!.dataset.messageStreaming =
+      "true";
+    expect(quoted(root, anchor({ quote: "retry" }))).toBeNull();
   });
 });
