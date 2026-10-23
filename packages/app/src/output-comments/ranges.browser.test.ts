@@ -82,6 +82,12 @@ describe("rangeForQuote", () => {
     expect(range && [range.startOffset, range.toString()]).toEqual([5, "very very"]);
   });
 
+  it("finds a quote that starts on an emoji", () => {
+    const root = mountMessage(paragraph("Shipped 🎉 party 🎉 party"));
+    const range = rangeForQuote({ root, anchor: anchor({ quote: "🎉 party", occurrence: 1 }) });
+    expect(range && [range.startOffset, range.toString()]).toEqual([17, "🎉 party"]);
+  });
+
   it("counts repeats across the whole reply", () => {
     const root = mountMessage(paragraph("retry now"), paragraph("retry later"));
     const range = rangeForQuote({ root, anchor: anchor({ quote: "retry", occurrence: 1 }) });

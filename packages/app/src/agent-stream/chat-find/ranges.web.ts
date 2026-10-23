@@ -131,7 +131,8 @@ function matchPoints(points: TextPoint[], pattern: string, isQuote: boolean): Re
   const matches: RenderedMatch[] = [];
   const regex = new RegExp(pattern, isQuote ? "gu" : "giu");
   for (let match = regex.exec(text); match; match = regex.exec(text)) {
-    if (isQuote) regex.lastIndex = match.index + 1;
+    // Step a whole code point: a `u` regex snaps lastIndex back out of a surrogate pair.
+    if (isQuote) regex.lastIndex = match.index + (text.codePointAt(match.index)! > 0xffff ? 2 : 1);
     const start = points.find((point) => point.start <= match.index && point.end > match.index);
     const endOffset = match.index + match[0].length;
     const end = points.find((point) => point.start < endOffset && point.end >= endOffset);
