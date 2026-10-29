@@ -299,20 +299,21 @@ export async function commentOn(
   await page.keyboard.type(note);
 }
 
-export async function cardsArePlacedByQuote(page: Page): Promise<boolean> {
-  const groups = page.locator("[data-output-comment-slot]");
-  if ((await groups.count()) === 0) return false;
-  return groups.evaluateAll((elements) =>
-    elements.every((group) => {
-      const reply = group
+export async function blocksBeforeCards(page: Page): Promise<string[]> {
+  return page.locator("[data-output-comment-slot]").evaluateAll((slots) =>
+    slots.map((slot) => {
+      const reply = slot
         .closest("[data-history-row-id]")
         ?.querySelector('[data-testid="assistant-message"]');
-      return (
-        reply !== null &&
-        reply !== undefined &&
-        (reply.contains(group) ||
-          Boolean(reply.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING))
-      );
+      if (!reply?.contains(slot)) return "(outside its reply)";
+      let block: Element | null = slot.parentElement?.matches("li")
+        ? slot.parentElement
+        : slot.previousElementSibling;
+      while (block?.matches("[data-output-comment-slot]")) block = block.previousElementSibling;
+      if (!block) return "(no block)";
+      const text = block.cloneNode(true) as Element;
+      for (const other of text.querySelectorAll("[data-output-comment-slot]")) other.remove();
+      return text.textContent ?? "";
     }),
   );
 }

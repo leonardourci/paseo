@@ -22,7 +22,7 @@ import {
   assistantMessageText,
   badgeOnTopAt,
   cardImages,
-  cardsArePlacedByQuote,
+  blocksBeforeCards,
   commentOn,
   composerPill,
   composerTray,
@@ -98,6 +98,14 @@ const LIST_RESPONSE = [
   "- Emit the output",
   "1. Ship the build",
 ].join("\n");
+
+// The rendered block each card on LIST_RESPONSE follows, in document order.
+const LIST_CARD_BLOCKS = [
+  expect.stringContaining("Build the tree"),
+  expect.stringContaining("Link each node"),
+  expect.stringContaining("Emit the output"),
+  expect.stringContaining("Ship the build"),
+];
 
 // A quote across the ordered list's items, and one from the paragraph after it, through the
 // bullet list, into the last paragraph.
@@ -476,10 +484,18 @@ test("a badge focuses its card and a card reveals its quote, each marking it act
     await page.keyboard.press("Escape");
     await expectHighlightTints(page, ["pending", "pending"]);
 
-    await assistantMessageText(page).locator("p").last().scrollIntoViewIfNeeded();
+    await assistantMessageText(page)
+      .locator("p")
+      .last()
+      .evaluate((paragraph) => paragraph.scrollIntoView({ block: "end" }));
+    await expect(textBadge(page, 2)).toBeInViewport();
+    await expect(pendingCards(page).nth(1)).not.toBeInViewport();
     await textBadge(page, 2).click();
 
     await expect(noteInput(pendingCards(page).nth(1))).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.type("X");
+    await expectNotes(page, ["n", "Xa"]);
     await expectHighlightTints(page, ["pending", "active"]);
     await expectActiveCards(page, [false, true]);
 
@@ -691,9 +707,8 @@ test("cards follow their quoted blocks while badges stay in reading order, befor
     await commentOn(page, { quote: "Tokenize", through: "the output", note: "all passes" });
     await commentOn(page, { quote: "Ship", note: "then ship" });
 
-    // The original reply stays intact while the cards attach to its rendered blocks.
     await expect(assistantMessageText(page)).toHaveCount(1);
-    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
+    await expect.poll(() => blocksBeforeCards(page)).toEqual(LIST_CARD_BLOCKS);
     await expectNotes(page, ["why a tree?", "every node?", "all passes", "then ship"]);
     // Numbered as they read, so card N and badge N mark the same quote.
     for (const [index, number] of [2, 3, 1, 4].entries()) {
@@ -713,7 +728,7 @@ test("cards follow their quoted blocks while badges stay in reading order, befor
       [/why a tree\?/, /every node\?/, /all passes/, /then ship/],
       { useInnerText: true },
     );
-    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
+    await expect.poll(() => blocksBeforeCards(page)).toEqual(LIST_CARD_BLOCKS);
 
     // A fence sent before quotes anchored to the whole reply names a block and list item.
     await agent.client.sendAgentMessage(
@@ -813,7 +828,12 @@ test("a quote across list items and paragraphs paints as one, before and after s
         },
       ]);
     await painted(["pending", "active"]);
-    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
+    await expect
+      .poll(() => blocksBeforeCards(page))
+      .toEqual([
+        expect.stringContaining("38 and 51 files differ"),
+        expect.stringContaining("Then the parser rests."),
+      ]);
 
     await fillComposerDraft(page, "Please revise.");
     await composerLocator(page).press("Enter");
