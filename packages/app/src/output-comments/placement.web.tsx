@@ -10,6 +10,7 @@ import type { OutputCommentPlacementProps } from "./types";
 const SLOT = "[data-output-comment-slot]";
 const BLOCK = 'p, li, pre, table, h1, h2, h3, h4, h5, h6, [data-paseo-markdown-tag="pre"]';
 const GAP = 8;
+const BUSY = '[aria-busy="true"]';
 
 function insertAfter(block: Element, host: HTMLElement, order: number): void {
   const parent = block.parentElement;
@@ -87,13 +88,24 @@ export function OutputCommentPlacement({
       if (host.parentElement !== marker) marker.append(host);
       return;
     }
-    const { text, matches } = findRenderedQuote(reply, quotePlainText(anchor));
-    const match = matches[pickOccurrence(text, matches, anchor)];
-    const range = match?.range ?? null;
-    const block = range ? blockAtEnd(range) : null;
-    if (block?.matches("li")) block.append(host);
-    else if (block) insertAfter(block, host, order);
-    else if (host.parentElement !== marker) marker.append(host);
+    const place = () => {
+      const { text, matches } = findRenderedQuote(reply, quotePlainText(anchor));
+      const match = matches[pickOccurrence(text, matches, anchor)];
+      const range = match?.range ?? null;
+      const block = range ? blockAtEnd(range) : null;
+      if (block?.matches("li")) block.append(host);
+      else if (block) insertAfter(block, host, order);
+      else if (host.parentElement !== marker) marker.append(host);
+    };
+    place();
+    if (!reply.querySelector(BUSY)) return;
+    const ready = new MutationObserver(() => {
+      if (reply.querySelector(BUSY)) return;
+      ready.disconnect();
+      place();
+    });
+    ready.observe(reply, { subtree: true, attributeFilter: ["aria-busy"] });
+    return () => ready.disconnect();
   }, [anchor, host, isComplete, order, replyText]);
   useLayoutEffect(
     () => () => {

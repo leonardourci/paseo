@@ -157,3 +157,27 @@ it("moves the same card to a changed reply's matching block", async () => {
   expect(paragraphs[1]!.nextElementSibling?.querySelector("textarea")).toBe(input);
   expect(input.value).toBe("preserved");
 });
+
+it("places a card by its quote once the reply's Markdown finishes parsing", async () => {
+  const transcript = mountMessage('<div aria-busy="true"></div>');
+  const markdown = transcript.querySelector("[aria-busy]")!;
+  const root = cardRoot(transcript);
+  await act(() =>
+    root.render(
+      <OutputCommentPlacement
+        anchor={anchor}
+        order={0}
+        isComplete={true}
+        replyText="first target\n\nfollowing paragraph"
+      >
+        <textarea defaultValue="a note" />
+      </OutputCommentPlacement>,
+    ),
+  );
+  markdown.innerHTML = paragraph("first target") + paragraph("following paragraph");
+  markdown.setAttribute("aria-busy", "false");
+  await act(() => new Promise((resolve) => setTimeout(resolve)));
+  const [quoted, following] = markdown.querySelectorAll("p");
+  expect(quoted?.nextElementSibling?.querySelector("textarea")?.value).toBe("a note");
+  expect(quoted?.nextElementSibling?.nextElementSibling).toBe(following);
+});
