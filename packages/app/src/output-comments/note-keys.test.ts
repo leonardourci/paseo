@@ -55,6 +55,14 @@ describe("typeIntoFocusingNote", () => {
     expect(noteOf(id)).toBe("hello");
   });
 
+  it("stops directing keys to an offscreen note on Escape", () => {
+    const id = openComment("keep");
+    expect(typeIntoFocusingNote(focusing(), "Escape")).toBe(true);
+    expect(typeIntoFocusingNote(focusing(), "x")).toBe(false);
+    expect(noteOf(id)).toBe("keep");
+    expect(useOutputCommentFocusStore.getState().focus).toBeNull();
+  });
+
   it("lets the key through and stops waiting when the card's row isn't rendered", () => {
     const id = openComment("w");
 

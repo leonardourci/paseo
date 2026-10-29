@@ -39,6 +39,12 @@ function editFocusingNote(
 
 /** False when the key edits no text or the note isn't waiting for focus. */
 export function typeIntoFocusingNote(input: FocusingNoteInput, key: string): boolean {
+  if (key === "Escape") {
+    const { focus, clearFocus } = useOutputCommentFocusStore.getState();
+    if (focus?.surfaceId !== input.surfaceId) return false;
+    clearFocus(focus);
+    return true;
+  }
   return editFocusingNote(input, (note) => noteAfterKey(note, key)) !== null;
 }
 

@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import { useTranslation } from "react-i18next";
-import { View, type NativeSyntheticEvent, type TextInputKeyPressEventData } from "react-native";
+import {
+  View,
+  type GestureResponderEvent,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
+} from "react-native";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { X } from "lucide-react-native";
@@ -18,6 +24,7 @@ import { isDictationTarget } from "./dictation";
 import { useNoteImages } from "./note-images";
 import { useNoteMentions } from "./note-mentions";
 import { revealOutputCommentQuote } from "./reveal";
+import { focusCommentInput } from "./placement";
 import {
   findComment,
   isFocusing,
@@ -36,6 +43,7 @@ interface PendingOutputCommentCardProps {
   /** The reply's text, as `QuoteLine` takes it. */
   replyText: string | null;
   composer: OutputCommentsComposer;
+  viewportRef: RefObject<StreamViewportHandle | null>;
 }
 
 interface NoteImagesProps {
@@ -97,6 +105,7 @@ export function PendingOutputCommentCard({
   number,
   replyText,
   composer,
+  viewportRef,
 }: PendingOutputCommentCardProps) {
   const { t } = useTranslation();
   const { id } = comment;
@@ -129,10 +138,10 @@ export function PendingOutputCommentCard({
     const current = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id });
     const text = current?.note ?? input.getText();
     const caret = useOutputCommentFocusStore.getState().focus?.caret ?? text.length;
-    input.focus();
     input.replaceText(text, { start: caret, end: caret });
-    clearFocus({ surfaceId, id });
-  }, [clearFocus, draftKey, id, shouldFocus, surfaceId]);
+    setActiveKey(id);
+    if (focusCommentInput(input)) clearFocus({ surfaceId, id });
+  }, [clearFocus, draftKey, id, shouldFocus, surfaceId, setActiveKey]);
 
   // The input is uncontrolled: a note changed from outside it, such as by a transcript, is copied
   // in without taking focus.
@@ -186,13 +195,25 @@ export function PendingOutputCommentCard({
   );
   useNoteImages({ inputRef, draftKey, commentId: id, composer });
   const handleFocus = useCallback(() => {
+    clearFocus({ surfaceId, id });
+    viewportRef.current?.stopFollowingOutput?.();
     setMentionsFocused(true);
     setActiveKey(id);
-  }, [id, setActiveKey, setMentionsFocused]);
-  const handlePress = useCallback(() => {
-    setActiveKey(id);
-    revealOutputCommentQuote({ cardId, anchor: comment });
-  }, [cardId, comment, id, setActiveKey]);
+  }, [clearFocus, id, setActiveKey, setMentionsFocused, surfaceId, viewportRef]);
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      setActiveKey(id);
+      const target: unknown = event.target;
+      if (
+        isWeb &&
+        target instanceof Element &&
+        target.closest('textarea, input, button, [role="button"]')
+      )
+        return;
+      revealOutputCommentQuote({ cardId, anchor: comment });
+    },
+    [cardId, comment, id, setActiveKey],
+  );
 
   return (
     <PressHighlight

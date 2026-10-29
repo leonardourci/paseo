@@ -21,7 +21,7 @@ import type { QuoteAnchor } from "./fence";
 import { attachNoteImage } from "./note-images.web";
 import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
 import { readCommentableSelection, type CommentableSelection } from "./selection.web";
-import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
+import { findComment, useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 import { CONTROL, PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
 import type { OutputCommentSelectionLayerProps } from "./types";
 
@@ -87,13 +87,20 @@ function toolbarPosition(state: Exclude<ToolbarState, { phase: "hidden" }>) {
 }
 
 /** The pending comment in this pane whose note has focus, with the note's selection. */
-function readFocusedNote(surfaceId: string): FocusedNote | null {
+function readFocusedNote(surfaceId: string, draftKey: string): FocusedNote | null {
   const input = document.activeElement;
-  if (!(input instanceof HTMLTextAreaElement)) return null;
-  const card = input.closest<HTMLElement>(PENDING_CARD);
-  const id = card?.dataset.outputCommentId;
-  if (!card || id === undefined || card.id !== outputCommentCardId(surfaceId, id)) return null;
-  return { id, range: { start: input.selectionStart, end: input.selectionEnd } };
+  if (input instanceof HTMLTextAreaElement) {
+    const card = input.closest<HTMLElement>(PENDING_CARD);
+    const id = card?.dataset.outputCommentId;
+    if (card && id !== undefined && card.id === outputCommentCardId(surfaceId, id)) {
+      return { id, range: { start: input.selectionStart, end: input.selectionEnd } };
+    }
+  }
+  const focus = useOutputCommentFocusStore.getState().focus;
+  if (focus?.surfaceId !== surfaceId) return null;
+  const comment = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id: focus.id });
+  if (!comment) return null;
+  return { id: comment.id, range: { start: comment.note.length, end: comment.note.length } };
 }
 
 function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
@@ -103,6 +110,7 @@ function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
 export function OutputCommentSelectionLayer({
   draftKey,
   composer,
+  viewportRef,
 }: OutputCommentSelectionLayerProps) {
   const { t } = useTranslation();
   const { isInteractive } = usePaneFocus();
@@ -158,20 +166,21 @@ export function OutputCommentSelectionLayer({
 
   const startComment = useCallback(
     ({ rect: _rect, ...anchor }: CommentableSelection, note: string): string => {
+      viewportRef.current?.stopFollowingOutput?.();
       const id = addComment({ ...anchor, draftKey }, note);
       focusNote({ surfaceId, id });
       window.getSelection()?.removeAllRanges();
       clear();
       return id;
     },
-    [addComment, clear, draftKey, focusNote, surfaceId],
+    [addComment, clear, draftKey, focusNote, surfaceId, viewportRef],
   );
 
   useEffect(
     () =>
       registerDictationSurface(surfaceId, {
         draftKey,
-        focusedNote: () => readFocusedNote(surfaceId),
+        focusedNote: () => readFocusedNote(surfaceId, draftKey),
         startCommentOnSelection: () => {
           const selection = readSelection();
           return selection ? startComment(selection, "") : null;
@@ -194,6 +203,11 @@ export function OutputCommentSelectionLayer({
     const onSelectionChange = () => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) clear();
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!isEditingSurface(event.target)) return;
+      const { focus, clearFocus } = useOutputCommentFocusStore.getState();
+      if (focus?.surfaceId === surfaceId) clearFocus(focus);
     };
     const focusingNote = {
       draftKey,
@@ -248,6 +262,7 @@ export function OutputCommentSelectionLayer({
     document.addEventListener("pointerup", onPointerUp);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("scroll", onReposition, true);
     window.addEventListener("resize", onReposition);
     // React Native TextInput stops bubbling key events, so listen in the capture phase.
@@ -258,6 +273,7 @@ export function OutputCommentSelectionLayer({
       document.removeEventListener("pointerup", onPointerUp);
       document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("scroll", onReposition, true);
       window.removeEventListener("resize", onReposition);
       document.removeEventListener("keydown", onKeyDown, true);
