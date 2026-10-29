@@ -166,13 +166,21 @@ export function PendingOutputCommentCard({
   const { onFocusChange: setMentionsFocused, onKeyPress: handleMentionsKeyPress } = mentions;
   const handleRemove = useCallback(() => {
     for (const imageId of deleteComments({ draftKey, ids: [id] })) removeDraftImage(imageId);
-  }, [deleteComments, draftKey, id, removeDraftImage]);
+    clearFocus({ surfaceId, id });
+  }, [clearFocus, deleteComments, draftKey, id, removeDraftImage, surfaceId]);
   // Read the store: the blur may come from an input that is already unmounting.
   const dropIfEmpty = useCallback(() => {
     if (isDictationTarget(id)) return;
     const current = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id });
     if (current && !isSendable(current, draftImageIds)) handleRemove();
   }, [draftImageIds, draftKey, handleRemove, id]);
+  const isWaiting = focus !== null;
+  const wasWaitingRef = useRef(isWaiting);
+  useEffect(() => {
+    const wasWaiting = wasWaitingRef.current;
+    wasWaitingRef.current = isWaiting;
+    if (wasWaiting && !isWaiting && !inputRef.current?.isFocused()) dropIfEmpty();
+  }, [dropIfEmpty, isWaiting]);
   const handleBlur = useCallback(() => {
     setMentionsFocused(false);
     // Switching apps, say to grab a screenshot, blurs the note too; keep it for the return.
