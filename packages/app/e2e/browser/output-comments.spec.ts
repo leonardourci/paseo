@@ -22,7 +22,7 @@ import {
   assistantMessageText,
   badgeOnTopAt,
   cardImages,
-  cardsFollowReply,
+  cardsArePlacedByQuote,
   commentOn,
   composerPill,
   composerTray,
@@ -135,6 +135,124 @@ const LONG_RESPONSE = [
   RESPONSE,
   ...Array.from({ length: 30 }, (_, index) => `Filler paragraph ${index}.`),
 ].join("\n\n");
+
+test("adding a comment near the start of a tall reply keeps the reader in place", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-stationary-",
+    response: TALL_RESPONSE,
+  });
+  try {
+    const chat = page.getByTestId("agent-chat-scroll");
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "needle" });
+    await chat.evaluate((scroller) => {
+      scroller.scrollTop = 0;
+    });
+    const before = await chat.evaluate((scroller) => scroller.scrollTop);
+
+    await page.keyboard.type("keep reading");
+
+    await expectNotes(page, ["keep reading"]);
+    await expect(noteInput(pendingCards(page))).not.toBeFocused();
+    await expect(noteInput(pendingCards(page))).not.toBeInViewport();
+    await expectCommentHighlights(page, [
+      { text: `Opening [needle] ${words("filler", 2000)}`, tint: "active" },
+    ]);
+    await expect.poll(() => chat.evaluate((scroller) => scroller.scrollTop)).toBe(before);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a comment opens after its quoted paragraph without replacing the reply", async ({ page }) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-placement-",
+    response: RESPONSE,
+  });
+  try {
+    const reply = assistantMessageText(page);
+    const paragraph = reply.locator("p").first();
+    const original = await paragraph.elementHandle();
+    await commentOn(page, { quote: "config", note: "why this file?" });
+    await expect
+      .poll(() =>
+        paragraph.evaluate((element) =>
+          element.nextElementSibling
+            ?.querySelector('[data-testid="output-comment-input"]')
+            ?.getAttribute("aria-label"),
+        ),
+      )
+      .toBe("Comment");
+    expect(await paragraph.evaluate((element, before) => element === before, original)).toBe(true);
+    await expect(reply).toHaveCount(1);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("editing a note keeps its focus without revealing its offscreen quote", async ({ page }) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-edit-stationary-",
+    response: TALL_RESPONSE,
+  });
+  try {
+    await leaveFocusedField(page);
+    await selectAssistantText(page, { text: "needle" });
+    await page.keyboard.type("first");
+    await expectNotes(page, ["first"]);
+    await leaveFocusedField(page);
+    const input = noteInput(pendingCards(page));
+    await input.scrollIntoViewIfNeeded();
+    const chat = page.getByTestId("agent-chat-scroll");
+    const before = await chat.evaluate(async () => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      return document.querySelector('[data-testid="output-comment-input"]')!.getBoundingClientRect()
+        .top;
+    });
+    await input.click();
+    expect(await input.evaluate((element) => element.getBoundingClientRect().top)).toBe(before);
+    await page.keyboard.press("End");
+    await page.keyboard.type(" edited");
+    await expect(input).toHaveValue("first edited");
+    await expect(input).toBeFocused();
+    await expectQuoteInView(page, { comment: 1, inView: false });
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("numbering an earlier comment keeps the note inputs mounted and the reader fixed", async ({
+  page,
+}) => {
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-numbering-stationary-",
+    response: LONG_RESPONSE,
+  });
+  try {
+    const chat = page.getByTestId("agent-chat-scroll");
+    await commentOn(page, { quote: "three", note: "older note" });
+    const original = await noteInput(pendingCards(page)).elementHandle();
+    await leaveFocusedField(page);
+    await chat.evaluate((scroller) => {
+      scroller.scrollTop = 0;
+    });
+    const before = await chat.evaluate((scroller) => scroller.scrollTop);
+    await commentOn(page, { quote: "config", note: "earlier note" });
+    const earlier = page.getByRole("group", { name: "Comment 1", exact: true });
+    const older = page.getByRole("group", { name: "Comment 2", exact: true });
+    await expect(noteInput(earlier)).toBeFocused();
+    await expect(noteInput(older)).toHaveValue("older note");
+    expect(
+      await noteInput(older).evaluate((element, previous) => element === previous, original),
+    ).toBe(true);
+    await expect.poll(() => chat.evaluate((scroller) => scroller.scrollTop)).toBe(before);
+  } finally {
+    await agent.cleanup();
+  }
+});
 
 test("typing over selected output starts a comment that takes every key and survives a reload", async ({
   page,
@@ -358,6 +476,7 @@ test("a badge focuses its card and a card reveals its quote, each marking it act
     await page.keyboard.press("Escape");
     await expectHighlightTints(page, ["pending", "pending"]);
 
+    await assistantMessageText(page).locator("p").last().scrollIntoViewIfNeeded();
     await textBadge(page, 2).click();
 
     await expect(noteInput(pendingCards(page).nth(1))).toBeFocused();
@@ -559,7 +678,7 @@ test("a note suggests files and skills but not commands", async ({ page }) => {
   }
 });
 
-test("cards follow their whole reply in the order their quotes read, before and after sending", async ({
+test("cards follow their quoted blocks while badges stay in reading order, before and after sending", async ({
   page,
 }) => {
   const agent = await openAnsweredAgent(page, {
@@ -572,13 +691,16 @@ test("cards follow their whole reply in the order their quotes read, before and 
     await commentOn(page, { quote: "Tokenize", through: "the output", note: "all passes" });
     await commentOn(page, { quote: "Ship", note: "then ship" });
 
-    // The reply renders once, whole, and the cards follow it.
+    // The original reply stays intact while the cards attach to its rendered blocks.
     await expect(assistantMessageText(page)).toHaveCount(1);
-    await expect.poll(() => cardsFollowReply(page)).toBe(true);
-    await expectNotes(page, ["all passes", "why a tree?", "every node?", "then ship"]);
+    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
+    await expectNotes(page, ["why a tree?", "every node?", "all passes", "then ship"]);
     // Numbered as they read, so card N and badge N mark the same quote.
-    for (const [index, card] of (await pendingCards(page).all()).entries()) {
-      await expect(card).toHaveAttribute("aria-label", `Comment ${index + 1}`);
+    for (const [index, number] of [2, 3, 1, 4].entries()) {
+      await expect(pendingCards(page).nth(index)).toHaveAttribute(
+        "aria-label",
+        `Comment ${number}`,
+      );
     }
     const badgeTop = async (number: number) => (await textBadge(page, number).boundingBox())?.y;
     expect(await badgeTop(1)).toBeLessThan((await badgeTop(4)) ?? 0);
@@ -588,10 +710,10 @@ test("cards follow their whole reply in the order their quotes read, before and 
 
     await expect(pendingCards(page)).toHaveCount(0);
     await expect(deliveredCards(page)).toHaveText(
-      [/all passes/, /why a tree\?/, /every node\?/, /then ship/],
+      [/why a tree\?/, /every node\?/, /all passes/, /then ship/],
       { useInnerText: true },
     );
-    await expect.poll(() => cardsFollowReply(page)).toBe(true);
+    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
 
     // A fence sent before quotes anchored to the whole reply names a block and list item.
     await agent.client.sendAgentMessage(
@@ -691,7 +813,7 @@ test("a quote across list items and paragraphs paints as one, before and after s
         },
       ]);
     await painted(["pending", "active"]);
-    await expect.poll(() => cardsFollowReply(page)).toBe(true);
+    await expect.poll(() => cardsArePlacedByQuote(page)).toBe(true);
 
     await fillComposerDraft(page, "Please revise.");
     await composerLocator(page).press("Enter");
