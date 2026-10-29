@@ -35,7 +35,7 @@ import { getDesktopHost, isElectronRuntime } from "@/desktop/host";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { hasActiveWebOverlay } from "@/lib/overlay-root";
-import { useOutputCommentFocusStore } from "@/output-comments/store";
+import { isFocusingNoteKey } from "@/output-comments/note-keys";
 import {
   type ActiveWorkspaceSelection,
   navigateToLastWorkspace,
@@ -356,9 +356,7 @@ export function useKeyboardShortcuts({
       }
     }
 
-    const pendingNote = useOutputCommentFocusStore.getState().focus;
-    const hasShortcutModifier = event.metaKey || event.ctrlKey || event.altKey;
-    if (pendingNote && !hasShortcutModifier) return;
+    if (isFocusingNoteKey(event)) return;
     const focusScope = resolveKeyboardFocusScope({
       target: event.target,
       commandCenterOpen: store.commandCenterOpen,
