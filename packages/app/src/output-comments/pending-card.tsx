@@ -113,8 +113,8 @@ export function PendingOutputCommentCard({
   const cardId = outputCommentCardId(surfaceId, id);
   const inputRef = useRef<EditingTextInputHandle | null>(null);
   const cardRef = useRef<View>(null);
-  const shouldFocus = useOutputCommentFocusStore((state) =>
-    isFocusing(state.focus, { surfaceId, id }),
+  const focus = useOutputCommentFocusStore((state) =>
+    isFocusing(state.focus, { surfaceId, id }) ? state.focus : null,
   );
   const clearFocus = useOutputCommentFocusStore((state) => state.clearFocus);
   const setActiveKey = useOutputCommentFocusStore((state) => state.setActiveKey);
@@ -134,14 +134,16 @@ export function PendingOutputCommentCard({
 
   useEffect(() => {
     const input = inputRef.current;
-    if (!shouldFocus || !input) return;
+    if (!focus || !input) return;
     const current = findComment(useOutputCommentsStore.getState().drafts, { draftKey, id });
     const text = current?.note ?? input.getText();
-    const caret = useOutputCommentFocusStore.getState().focus?.caret ?? text.length;
+    const caret = focus.caret ?? text.length;
     input.replaceText(text, { start: caret, end: caret });
     setActiveKey(id);
-    if (focusCommentInput(input)) clearFocus({ surfaceId, id });
-  }, [clearFocus, draftKey, id, shouldFocus, surfaceId, setActiveKey]);
+    if (focus.reveal) input.focus();
+    else if (!focusCommentInput(input)) return;
+    clearFocus(focus);
+  }, [clearFocus, draftKey, focus, id, setActiveKey]);
 
   // The input is uncontrolled: a note changed from outside it, such as by a transcript, is copied
   // in without taking focus.
