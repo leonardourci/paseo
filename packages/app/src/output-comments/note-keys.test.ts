@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
+import { enableFocusingNotes, pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 
 const DRAFT_KEY = "draft-1";
@@ -69,6 +69,15 @@ describe("typeIntoFocusingNote", () => {
     expect(typeIntoFocusingNote(focusing({ isCardRowRendered: false }), "h")).toBe(false);
     expect(noteOf(id)).toBe("w");
     expect(useOutputCommentFocusStore.getState().focus).toBeNull();
+  });
+
+  it("stops waiting once its pane stops taking keys, keeping the note", () => {
+    const id = openComment("w");
+
+    enableFocusingNotes(focusing())();
+    expect(useOutputCommentFocusStore.getState().focus).toBeNull();
+    expect(typeIntoFocusingNote(focusing(), "h")).toBe(false);
+    expect(noteOf(id)).toBe("w");
   });
 
   it("leaves a note another pane is focusing alone", () => {
