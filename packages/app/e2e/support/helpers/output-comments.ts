@@ -215,8 +215,8 @@ export async function selectAssistantText(
       for (const block of blocks) {
         const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const isCard = node.parentElement?.closest('[data-testid="output-comment-rows"]');
-          if (node instanceof Text && !isCard) texts.push(node);
+          const isIgnored = node.parentElement?.closest('[data-paseo-markdown-ignore="true"]');
+          if (node instanceof Text && !isIgnored) texts.push(node);
         }
       }
       function find(needle: string, fromText: number, fromOffset: number) {
@@ -290,33 +290,30 @@ export function focusedNote(page: Page): Locator {
   return page.locator('[data-testid="output-comment-input"]:focus');
 }
 
-/** Types over the quote; the rest of the note follows once its first key has focused the note. */
 export async function commentOn(
   page: Page,
   { quote, note, occurrence = 0, through = quote }: CommentOnInput,
 ): Promise<void> {
   await leaveFocusedField(page);
   await selectAssistantText(page, { text: quote, occurrence, through });
-  await page.keyboard.type(note.slice(0, 1));
-  await expect(focusedNote(page)).toHaveCount(1);
-  await page.keyboard.type(note.slice(1));
+  await page.keyboard.type(note);
 }
 
-/** Whether every reply's comment cards follow its Markdown text, outside it, in its row. */
-export async function cardsFollowReply(page: Page): Promise<boolean> {
-  const groups = page.getByTestId("output-comment-rows");
-  if ((await groups.count()) === 0) return false;
-  return groups.evaluateAll((elements) =>
-    elements.every((group) => {
-      const reply = group
+export async function blocksBeforeCards(page: Page): Promise<string[]> {
+  return page.locator("[data-output-comment-slot]").evaluateAll((slots) =>
+    slots.map((slot) => {
+      const reply = slot
         .closest("[data-history-row-id]")
         ?.querySelector('[data-testid="assistant-message"]');
-      return (
-        reply !== null &&
-        reply !== undefined &&
-        !reply.contains(group) &&
-        Boolean(reply.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
-      );
+      if (!reply?.contains(slot)) return "(outside its reply)";
+      let block: Element | null = slot.parentElement?.matches("li")
+        ? slot.parentElement
+        : slot.previousElementSibling;
+      while (block?.matches("[data-output-comment-slot]")) block = block.previousElementSibling;
+      if (!block) return "(no block)";
+      const text = block.cloneNode(true) as Element;
+      for (const other of text.querySelectorAll("[data-output-comment-slot]")) other.remove();
+      return text.textContent ?? "";
     }),
   );
 }

@@ -1,4 +1,5 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
+import type { StreamViewportHandle } from "@/agent-stream/strategy";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import type { OutputCommentsComposer } from "./composer-context";
 import type { QuoteAnchor } from "./fence";
@@ -19,6 +20,15 @@ export interface OutputCommentHighlightsProps {
 export interface OutputCommentSelectionLayerProps {
   draftKey: string;
   composer: OutputCommentsComposer;
+  viewportRef: RefObject<StreamViewportHandle | null>;
+}
+
+export interface OutputCommentPlacementProps {
+  anchor: QuoteAnchor;
+  order: number;
+  replyText: string;
+  isComplete: boolean;
+  children: ReactNode;
 }
 
 export interface UseNoteImagesInput {

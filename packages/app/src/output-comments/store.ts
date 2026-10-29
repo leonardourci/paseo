@@ -98,6 +98,8 @@ interface NoteFocus {
   id: string;
   /** Where the caret goes; the note's end when absent. */
   caret?: number;
+  /** Navigated to: the note takes focus even offscreen, scrolling into view. */
+  reveal?: boolean;
 }
 
 interface OutputCommentFocusStore {

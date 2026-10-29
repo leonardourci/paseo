@@ -162,7 +162,7 @@ function TextBadgeButton({ surfaceId, placed, isActive }: TextBadgeButtonProps) 
   const handlePress = useCallback(() => {
     setActiveKey(key);
     if (revealOutputCommentCard(outputCommentCardId(surfaceId, key))) {
-      focusNote({ surfaceId, id: key });
+      focusNote({ surfaceId, id: key, reveal: true });
     }
   }, [focusNote, key, setActiveKey, surfaceId]);
   const isRaised = isHovered || isActive;

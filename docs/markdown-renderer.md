@@ -6,7 +6,13 @@ Native selection belongs to the library's text view. Keep an assistant message i
 
 ## Output comments
 
-Output comments never split or mark up a reply: it stays one row and one library text on every platform. A comment anchors to its exact quote in the whole reply, plus a little of the text around it, so a reply whose quote is gone shows the comment as unresolved instead of moving it to other words. Web finds the quote in the rendered text and paints it with the CSS Custom Highlight API, which adds no elements; the cards follow the reply. Quotes are looked for only in replies that have comments and are done streaming (`data-message-streaming`). A sent message stores the quote, its occurrence in the reply and which reply back it came from, never a block or offset; fences sent before this with a `block=` index still read, by their quote.
+Output comments keep a reply in one row and one library render. A comment anchors to its exact quote in the whole reply, plus a little of the text around it, so a reply whose quote is gone shows the comment as unresolved instead of moving it to other words. Web paints quotes with the CSS Custom Highlight API and portals each card after the rendered block where its quote ends. Keep the renderer's text nodes intact. Card hosts are excluded from copy and quote matching; native and unresolved cards follow the reply.
+
+Placement searches only the card's own reply when the anchor or reply changes. Do not add transcript observers, polling, or measurements on scroll for card placement. Removing a card removes its host. Reading-order numbering keeps the same host and input mounted.
+
+Commenting stops following output. Auto-focus a note only when its input is already inside the chat viewport: browsers scroll an offscreen textarea into view on subsequent typing even when its initial focus uses `preventScroll`. An offscreen note receives the pending keys without moving focus; Escape ends that input, and clicking its card's input starts ordinary editing. Editing the input must not trigger the card's reveal-quote action.
+
+Quotes are looked for only in replies that have comments and are done streaming (`data-message-streaming`). A sent message stores the quote, its occurrence in the reply and which reply back it came from, never a block or offset; fences sent before this with a `block=` index still read, by their quote.
 
 ## Block spacing
 

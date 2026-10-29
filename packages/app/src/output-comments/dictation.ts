@@ -72,6 +72,10 @@ export function isDictationTarget(id: string): boolean {
   return commentTargets.has(id);
 }
 
+export function isDictatingIntoNote(): boolean {
+  return commentTargets.size > 0;
+}
+
 function insertTranscript({ note, text, range }: TranscriptInsert): InsertedTranscript {
   const before = appendTranscript(note.slice(0, range.start), text);
   const after = note.slice(range.end);

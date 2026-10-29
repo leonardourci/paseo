@@ -143,7 +143,7 @@ export function useComposerOutputComments({
     setActiveKey(first.id);
     // A card in history the list hasn't rendered would take focus whenever it next renders.
     if (revealOutputCommentCard(outputCommentCardId(surfaceId, first.id))) {
-      focusNote({ surfaceId, id: first.id });
+      focusNote({ surfaceId, id: first.id, reveal: true });
     }
   }, [focusNote, readSendable, setActiveKey, surfaceId]);
   const removeImage = composer?.removeImage;

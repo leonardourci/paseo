@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type MouseEvent } from "react";
 import { findMessageRows } from "@/agent-stream/chat-find/ranges.web";
 import { useTranslation } from "react-i18next";
 import { View, type LayoutChangeEvent } from "react-native";
@@ -7,19 +7,24 @@ import { MessageSquarePlus, Quote } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useSettings } from "@/hooks/use-settings";
-import { hasActiveWebOverlay } from "@/lib/overlay-root";
 import { isEditingSurface } from "@/output-caret/host";
 import { useIsOutputCaretAvailable } from "@/output-caret/layer";
 import { usePaneFocus } from "@/panels/pane-context";
 import { SPACING } from "@/styles/theme";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { collectImageFilesFromClipboardData } from "@/utils/image-attachments-from-files";
-import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { outputCommentCardId } from "./composer-context";
 import { registerDictationSurface, type FocusedNote } from "./dictation";
 import type { QuoteAnchor } from "./fence";
 import { attachNoteImage } from "./note-images.web";
-import { pasteIntoFocusingNote, typeIntoFocusingNote } from "./note-keys";
+import {
+  enableFocusingNotes,
+  isOutputEvent,
+  isOutputKey,
+  pasteIntoFocusingNote,
+  readFocusingNote,
+  typeIntoFocusingNote,
+} from "./note-keys";
 import { readCommentableSelection, type CommentableSelection } from "./selection.web";
 import { useOutputCommentFocusStore, useOutputCommentsStore } from "./store";
 import { CONTROL, PENDING_CARD, SURFACE_LAYER, surfaceRootOf } from "./surface.web";
@@ -58,20 +63,6 @@ function toolbarReducer(state: ToolbarState, action: ToolbarAction): ToolbarStat
   }
 }
 
-/** Input aimed at the output, not at a field or an overlay. */
-function isOutputEvent(event: Event): boolean {
-  return (
-    !event.defaultPrevented && !hasActiveWebOverlay() && !isEditingSurface(document.activeElement)
-  );
-}
-
-function isOutputKey(event: KeyboardEvent): boolean {
-  if (event.metaKey || event.ctrlKey || event.altKey || isImeComposingKeyboardEvent(event)) {
-    return false;
-  }
-  return isOutputEvent(event);
-}
-
 function isTypeToCommentKey(key: string): boolean {
   return key.length === 1 && key.trim() !== "";
 }
@@ -103,6 +94,7 @@ function preventSelectionLoss(event: MouseEvent<HTMLDivElement>): void {
 export function OutputCommentSelectionLayer({
   draftKey,
   composer,
+  viewportRef,
 }: OutputCommentSelectionLayerProps) {
   const { t } = useTranslation();
   const { isInteractive } = usePaneFocus();
@@ -128,6 +120,16 @@ export function OutputCommentSelectionLayer({
     const root = surfaceRoot();
     return root ? readCommentableSelection({ selection: window.getSelection(), root }) : null;
   }, [surfaceRoot]);
+
+  const focusingNote = useMemo(
+    () => ({
+      draftKey,
+      surfaceId,
+      isCardRowRendered: ({ sourceItemId }: QuoteAnchor) =>
+        findMessageRows(surfaceRoot(), sourceItemId).length > 0,
+    }),
+    [draftKey, surfaceId, surfaceRoot],
+  );
 
   const clear = useCallback(() => {
     isShownRef.current = false;
@@ -158,20 +160,22 @@ export function OutputCommentSelectionLayer({
 
   const startComment = useCallback(
     ({ rect: _rect, ...anchor }: CommentableSelection, note: string): string => {
+      viewportRef.current?.stopFollowingOutput?.();
       const id = addComment({ ...anchor, draftKey }, note);
       focusNote({ surfaceId, id });
       window.getSelection()?.removeAllRanges();
       clear();
       return id;
     },
-    [addComment, clear, draftKey, focusNote, surfaceId],
+    [addComment, clear, draftKey, focusNote, surfaceId, viewportRef],
   );
 
   useEffect(
     () =>
       registerDictationSurface(surfaceId, {
         draftKey,
-        focusedNote: () => readFocusedNote(surfaceId),
+        focusedNote: () =>
+          readFocusedNote(surfaceId) ?? (readSelection() ? null : readFocusingNote(focusingNote)),
         startCommentOnSelection: () => {
           const selection = readSelection();
           return selection ? startComment(selection, "") : null;
@@ -179,7 +183,12 @@ export function OutputCommentSelectionLayer({
         canFocusNote: () =>
           isEnabled && document.hasFocus() && !isEditingSurface(document.activeElement),
       }),
-    [draftKey, isEnabled, readSelection, startComment, surfaceId],
+    [draftKey, focusingNote, isEnabled, readSelection, startComment, surfaceId],
+  );
+
+  useEffect(
+    () => (isEnabled ? enableFocusingNotes(focusingNote) : undefined),
+    [focusingNote, isEnabled],
   );
 
   useEffect(() => {
@@ -195,11 +204,10 @@ export function OutputCommentSelectionLayer({
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) clear();
     };
-    const focusingNote = {
-      draftKey,
-      surfaceId,
-      isCardRowRendered: ({ sourceItemId }: QuoteAnchor) =>
-        findMessageRows(surfaceRoot(), sourceItemId).length > 0,
+    const onFocusIn = (event: FocusEvent) => {
+      if (!isEditingSurface(event.target)) return;
+      const { focus, clearFocus } = useOutputCommentFocusStore.getState();
+      if (focus?.surfaceId === surfaceId) clearFocus(focus);
     };
     const onCaretEnter = (event: KeyboardEvent): boolean => {
       if (document.activeElement?.closest(CONTROL)) return false;
@@ -248,6 +256,7 @@ export function OutputCommentSelectionLayer({
     document.addEventListener("pointerup", onPointerUp);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("scroll", onReposition, true);
     window.addEventListener("resize", onReposition);
     // React Native TextInput stops bubbling key events, so listen in the capture phase.
@@ -258,6 +267,7 @@ export function OutputCommentSelectionLayer({
       document.removeEventListener("pointerup", onPointerUp);
       document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("scroll", onReposition, true);
       window.removeEventListener("resize", onReposition);
       document.removeEventListener("keydown", onKeyDown, true);
@@ -267,6 +277,7 @@ export function OutputCommentSelectionLayer({
     clear,
     composer,
     draftKey,
+    focusingNote,
     insertQuote,
     isCaretOn,
     isEnabled,
@@ -274,7 +285,6 @@ export function OutputCommentSelectionLayer({
     showForSelection,
     startComment,
     surfaceId,
-    surfaceRoot,
   ]);
 
   // The toolbar may still stand for an earlier selection, say after a keyboard select-all, so

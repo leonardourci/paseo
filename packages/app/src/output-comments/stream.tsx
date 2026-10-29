@@ -33,6 +33,7 @@ import {
   type DeliveredOutputComments,
 } from "./match";
 import { PendingOutputCommentCard } from "./pending-card";
+import { OutputCommentPlacement } from "./placement";
 import { OutputCommentSelectionLayer } from "./selection-layer";
 import {
   EMPTY_PENDING_COMMENTS,
@@ -223,7 +224,13 @@ export function OutputCommentsLayer({
     <StreamCommentsContext.Provider value={comments}>
       <OutputCaretLayer viewportRef={viewportRef}>{children}</OutputCaretLayer>
       <OutputCommentHighlights surfaceId={surfaceId} pending={ordered} delivered={delivered} />
-      {composer ? <OutputCommentSelectionLayer draftKey={draftKey} composer={composer} /> : null}
+      {composer ? (
+        <OutputCommentSelectionLayer
+          draftKey={draftKey}
+          composer={composer}
+          viewportRef={viewportRef}
+        />
+      ) : null}
     </StreamCommentsContext.Provider>
   );
 }
@@ -247,11 +254,7 @@ export function useSentCommentQuote(key: string): SentCommentQuote | null {
   }, [commentTurns, delivered, key]);
 }
 
-/**
- * The reply renders whole, as one Markdown text, and the cards of the comments on it follow it.
- * Their quotes are found in the text rather than marked in it, so a reply without comments costs
- * nothing.
- */
+// Keep one Markdown render so selection and copy retain the renderer's original text nodes.
 export function OutputCommentsMessage({ item, isComplete, children }: OutputCommentsMessageProps) {
   const { pendingBySource, delivered } = useStreamComments();
   const pending = pendingBySource.get(item.id) ?? EMPTY_ROW_PENDING;
@@ -310,7 +313,7 @@ const OutputCommentCards = memo(function OutputCommentCards({
   pending,
   delivered,
 }: OutputCommentCardsProps) {
-  const { draftKey, serverId, agentId, surfaceId } = useStreamComments();
+  const { draftKey, serverId, agentId, surfaceId, viewportRef } = useStreamComments();
   const composer = useOutputCommentsComposer();
   // A streaming reply isn't read until it is done; its cards show their quotes as written.
   const replyText = useMemo(() => (isComplete ? replyTextOf(item) : null), [isComplete, item]);
@@ -327,28 +330,43 @@ const OutputCommentCards = memo(function OutputCommentCards({
       dataSet={markdownCopyDataSet.ignore}
       testID="output-comment-rows"
     >
-      {cards.map((card) => {
+      {cards.map((card, order) => {
         if (card.kind === "delivered") {
           return (
-            <DeliveredOutputCommentCard
+            <OutputCommentPlacement
               key={card.key}
-              surfaceId={surfaceId}
-              comment={card.comment}
-              replyText={replyText}
-            />
+              anchor={card.comment}
+              order={order}
+              replyText={item.text}
+              isComplete={isComplete}
+            >
+              <DeliveredOutputCommentCard
+                surfaceId={surfaceId}
+                comment={card.comment}
+                replyText={replyText}
+              />
+            </OutputCommentPlacement>
           );
         }
         return composer ? (
-          <PendingOutputCommentCard
+          <OutputCommentPlacement
             key={card.key}
-            draftKey={draftKey}
-            serverId={serverId}
-            agentId={agentId}
-            comment={card.entry.comment}
-            number={card.entry.number}
-            replyText={replyText}
-            composer={composer}
-          />
+            anchor={card.entry.comment}
+            order={order}
+            replyText={item.text}
+            isComplete={isComplete}
+          >
+            <PendingOutputCommentCard
+              draftKey={draftKey}
+              serverId={serverId}
+              agentId={agentId}
+              comment={card.entry.comment}
+              number={card.entry.number}
+              replyText={replyText}
+              composer={composer}
+              viewportRef={viewportRef}
+            />
+          </OutputCommentPlacement>
         ) : null;
       })}
     </View>
@@ -359,5 +377,6 @@ const styles = StyleSheet.create((theme) => ({
   container: {
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
+    _web: { gap: 0, marginTop: 0 },
   },
 }));
