@@ -346,9 +346,11 @@ const BADGE_TRANSITION = {
 } as const;
 
 const styles = StyleSheet.create((theme) => ({
-  active: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.active) },
-  pending: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.pending) },
-  delivered: { backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.delivered) },
+  active: { backgroundColor: colorWithAlpha(theme.colors.accentBright, HIGHLIGHT_ALPHA.active) },
+  pending: { backgroundColor: colorWithAlpha(theme.colors.accentBright, HIGHLIGHT_ALPHA.pending) },
+  delivered: {
+    backgroundColor: colorWithAlpha(theme.colors.accentBright, HIGHLIGHT_ALPHA.delivered),
+  },
   // No transition on the pile: scrolling and streaming move it, and it must keep up.
   pile: { position: "absolute", pointerEvents: "auto" },
   textBadge: {

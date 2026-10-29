@@ -104,7 +104,7 @@ export const cardStyles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[2],
     borderWidth: theme.borderWidth[1],
     borderLeftWidth: theme.borderWidth[2],
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.surface3,
     borderRadius: theme.borderRadius.lg,
     backgroundColor: theme.colors.surface1,
   },
@@ -114,7 +114,7 @@ export const cardStyles = StyleSheet.create((theme) => ({
   active: {
     borderColor: theme.colors.accent,
     borderLeftColor: theme.colors.accent,
-    backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.delivered),
+    backgroundColor: colorWithAlpha(theme.colors.accentBright, HIGHLIGHT_ALPHA.delivered),
   },
   quoteLine: {
     color: theme.colors.foregroundMuted,
@@ -122,10 +122,10 @@ export const cardStyles = StyleSheet.create((theme) => ({
     lineHeight: Math.round(theme.fontSize.sm * 1.4),
   },
   quoteMatch: {
-    backgroundColor: colorWithAlpha(theme.colors.accent, HIGHLIGHT_ALPHA.pending),
+    backgroundColor: colorWithAlpha(theme.colors.accentBright, HIGHLIGHT_ALPHA.pending),
   },
   note: {
-    color: theme.colors.foregroundMuted,
+    color: theme.colors.foreground,
     fontSize: theme.fontSize.content,
     lineHeight: Math.round(theme.fontSize.content * 1.4),
     _web: { overflowWrap: "anywhere" },
