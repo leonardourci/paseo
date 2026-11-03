@@ -251,7 +251,12 @@ describe("agent timeline state", () => {
 
     expect(
       selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"),
-    ).toEqual(["refactor the wrong module", "add tests", "fix the auth bug"]);
+    ).toEqual([
+      { message: sent("m5", "refactor the wrong module"), lastOutputId: undefined },
+      { message: sent("m3", "add tests"), lastOutputId: undefined },
+      { message: sent("m2", "add tests"), lastOutputId: undefined },
+      { message: sent("m1", "fix the auth bug"), lastOutputId: undefined },
+    ]);
     expect(selectAgentSentMessages(undefined, "agent-1")).toEqual([]);
   });
 

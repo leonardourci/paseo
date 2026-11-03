@@ -332,24 +332,29 @@ export function selectAgentTimelineState(
   return items.length > 0 ? { status: "painted", items } : { status: "cold" };
 }
 
-/** Text of the loaded user messages, newest first, with back-to-back repeats collapsed. */
+export interface SentAgentMessage {
+  message: UserMessageItem;
+  lastOutputId: string | undefined;
+}
+
+/** Loaded sent messages retain the output boundary their comment ordinals were written against. */
 export function selectAgentSentMessages(
   session: SessionState | undefined,
   agentId: string,
-): string[] {
+): SentAgentMessage[] {
   if (!session) return [];
   const items = [
     ...(session.agentStreamTail.get(agentId) ?? []),
     ...(session.agentStreamHead.get(agentId) ?? []),
   ];
-  const messages: string[] = [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
+  const messages: SentAgentMessage[] = [];
+  let lastOutputId: string | undefined;
+  for (const item of items) {
+    if (item.kind === "assistant_message") lastOutputId = item.id;
     if (item.kind !== "user_message" || item.text.trim().length === 0) continue;
-    if (messages[messages.length - 1] === item.text) continue;
-    messages.push(item.text);
+    messages.push({ message: item, lastOutputId });
   }
-  return messages;
+  return messages.toReversed();
 }
 
 export function selectAgentTurnPresentation(

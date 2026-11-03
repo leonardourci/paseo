@@ -2078,7 +2078,9 @@ function ComposerContentImpl({
     (event: ComposerKeyPressEvent) => {
       if (autocompleteRef.current?.onKeyPress(event)) return true;
       const recalledText = recall.handleKeyPress(event, () =>
-        selectAgentSentMessages(useSessionStore.getState().sessions[serverId], agentId),
+        selectAgentSentMessages(useSessionStore.getState().sessions[serverId], agentId).map(
+          ({ message }) => message.text,
+        ),
       );
       if (recalledText === null) return false;
       event.preventDefault();
