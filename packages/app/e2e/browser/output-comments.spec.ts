@@ -1428,6 +1428,10 @@ test("recall restores sent comments and images to their original output after mo
     await expect(
       historyRow(assistantMessageText(page).last()).getByTestId("output-comment-pending"),
     ).toHaveCount(0);
+    await composerPill(page).click();
+    await expect(focusedNote(page)).toHaveValue("keep this original note");
+    await expect(focusedNote(page)).toHaveCSS("color", "rgb(250, 250, 250)");
+    await page.screenshot({ path: testInfo.outputPath("dark-recalled-comments.png") });
 
     await composerLocator(page).press("Enter");
     await agent.client.waitForFinish(agent.agentId, 30_000);
@@ -1438,7 +1442,15 @@ test("recall restores sent comments and images to their original output after mo
     await expect(
       historyRow(assistantMessageText(page).nth(1)).getByTestId("output-comment-delivered"),
     ).toHaveCount(0);
-    await page.screenshot({ path: testInfo.outputPath("dark-recalled-comments.png") });
+    const sent = sentUserMessage(page, "Please revise.").last();
+    await sentCommentsToggle(sent).click();
+    const card = sentCommentCards(sent).last();
+    await expect(card.getByText(/^keep this original note/)).toHaveCSS(
+      "color",
+      "rgb(250, 250, 250)",
+    );
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("dark-sent-comments.png") });
   } finally {
     await agent.cleanup();
   }
