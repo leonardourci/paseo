@@ -1435,14 +1435,18 @@ test("recall restores sent comments and images to their original output after mo
 
     for (const location of ["card", "tray"] as const) {
       const container = location === "card" ? pendingCards(page).first() : composerTray(page);
-      const testId = location === "card" ? "output-comment-image" : "composer-image-attachment-pill";
+      const testId =
+        location === "card" ? "output-comment-image" : "composer-image-attachment-pill";
       await removeAttachmentPill(container, testId, "Remove image attachment");
       await expect(cardImages(pendingCards(page))).toHaveCount(0);
       await removeAllComments(page);
       await fillComposerDraft(page, "");
       await composerLocator(page).press("ArrowUp");
       await expectNotes(page, ["keep this original note"]);
-      await expect(cardImages(pendingCards(page)).locator("img")).toHaveJSProperty("naturalWidth", 1);
+      await expect(cardImages(pendingCards(page)).locator("img")).toHaveJSProperty(
+        "naturalWidth",
+        1,
+      );
     }
 
     await composerLocator(page).press("Enter");
