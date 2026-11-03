@@ -20,7 +20,12 @@ interface SentOutputCommentsProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function SentOutputComments({
+export function SentOutputComments(props: SentOutputCommentsProps) {
+  if (props.comments.length === 0) return null;
+  return <SentOutputCommentsContent {...props} />;
+}
+
+function SentOutputCommentsContent({
   itemId,
   comments,
   isExpanded,

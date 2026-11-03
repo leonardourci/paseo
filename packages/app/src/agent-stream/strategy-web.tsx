@@ -20,7 +20,7 @@ import { withUnistyles } from "react-native-unistyles";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import type { StreamItem } from "@/types/stream";
+import { getStreamItemMessageId, type StreamItem } from "@/types/stream";
 import type { Theme } from "@/styles/theme";
 import { WEB_SCROLLBAR_SIZE_PX } from "@/styles/web-scrollbar";
 import { DomOverlayScrollbar } from "@/components/ui/overlay-scrollbar/dom-overlay-scrollbar";
@@ -47,7 +47,6 @@ import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
 import { isEditingSurface } from "@/output-caret/host";
 import { useOutputCaretRowId } from "@/output-caret/context";
 import { usePinnedRowIndexes } from "./pinned-rows";
-import { getStreamItemMessageId } from "./presentation";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
 
 interface CreateWebStreamStrategyInput {
@@ -390,7 +389,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const rangeExtractor = useCallback(
     (range: VirtualRange): number[] => {
       const anchorIndex = segments.historyVirtualized.findIndex(
-        (row) => row.id === readingAnchor.getRowId(),
+        (row) => row.id === readingAnchor.getRowId(props.readingRowReplacements),
       );
       const container = scrollContainerRef.current;
       // TanStack has computed the new measurements before calling the extractor.
@@ -400,10 +399,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       const measurement = virtualizer.measurementsCache[anchorIndex];
       const correctedOffset =
         container && measurement
-          ? readingAnchor.project(container.scrollTop, {
-              id: String(measurement.key),
-              top: measurement.start,
-            })
+          ? readingAnchor.project(
+              container.scrollTop,
+              {
+                id: String(measurement.key),
+                top: measurement.start,
+              },
+              props.readingRowReplacements,
+            )
           : container?.scrollTop;
       let visibleRange = range;
       if (
@@ -424,7 +427,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         ]),
       ].sort((left, right) => left - right);
     },
-    [pinnedRowIndexes, readingAnchor, segments.historyVirtualized],
+    [pinnedRowIndexes, readingAnchor, segments.historyVirtualized, props.readingRowReplacements],
   );
   const virtualOffsetListener = useRef<((offset: number, scrolling: boolean) => void) | null>(null);
   const observeVirtualOffset = useCallback<typeof observeElementOffset>((instance, onOffset) => {
@@ -738,7 +741,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     );
     const shouldAnchor = !followOutputRef.current && !isJumpSettling();
     if (!shouldAnchor) readingAnchor.reset();
-    const correctedTop = readingAnchor.reconcile(container.scrollTop, rows);
+    const correctedTop = readingAnchor.reconcile(
+      container.scrollTop,
+      rows,
+      false,
+      props.readingRowReplacements,
+    );
     if (!shouldAnchor) {
       readingAnchor.reset();
       return;
@@ -1169,6 +1177,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         }
         scheduleStickToBottom();
       },
+      holdReadingPosition: () => {
+        cancelPendingStickToBottom();
+        setFollowOutput(false);
+        readingAnchor.scroll(scrollContainerRef.current?.scrollTop ?? 0);
+      },
       scrollToMessage,
       stopFollowingOutput: stopFollowingOutputFromUserIntent,
       holdElementPosition: (element) => {
@@ -1195,6 +1208,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [
     cancelPendingStickToBottom,
     forceStickToBottom,
+    readingAnchor,
     scheduleStickToBottom,
     scrollToMessage,
     stopFollowingOutputFromUserIntent,

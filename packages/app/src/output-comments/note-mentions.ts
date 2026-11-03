@@ -36,7 +36,7 @@ interface UseNoteMentionsInput {
 }
 
 interface NoteMentions {
-  popover: Omit<ComponentProps<typeof AutocompletePopover>, "anchorRef">;
+  popover: Omit<ComponentProps<typeof AutocompletePopover>, "children" | "anchorStyle">;
   onKeyPress: (event: NativeSyntheticEvent<NoteKeyPressEventData>) => boolean;
   onSelectionChange: (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
   onFocusChange: (focused: boolean) => void;

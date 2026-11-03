@@ -730,6 +730,13 @@ test("cards follow their quoted blocks while badges stay in reading order, befor
     );
     await expect.poll(() => blocksBeforeCards(page)).toEqual(LIST_CARD_BLOCKS);
 
+    const sent = sentUserMessage(page, "Please revise.");
+    await sentCommentsToggle(sent).click();
+    await expect(sentCommentCards(sent)).toHaveCount(4);
+    await expect(sent.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0);
+    await sentCommentCards(sent).last().scrollIntoViewIfNeeded();
+    await expect(sentCommentCards(sent).last()).toBeInViewport();
+
     // A fence sent before quotes anchored to the whole reply names a block and list item.
     await agent.client.sendAgentMessage(
       agent.agentId,
