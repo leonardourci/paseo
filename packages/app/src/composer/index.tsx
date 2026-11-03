@@ -1,3 +1,4 @@
+import { buildDraftStoreKey } from "@/stores/draft-keys";
 import {
   useComposerEditingSession,
   useComposerFullscreen,
@@ -122,7 +123,8 @@ import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import { submitAgentInput } from "@/composer/submit";
-import { ComposerRecall } from "@/composer/recall";
+import { ComposerRecall, prepareRecallMessages } from "@/composer/recall";
+import { useOutputCommentsStore, EMPTY_PENDING_COMMENTS } from "@/output-comments/store";
 import { createMessageSubmissionWriter } from "@/composer/submission/writer";
 import { ComposerKeyboardScopeProvider, useComposerKeyboardScope } from "@/composer/keyboard-scope";
 import { useAppSettings } from "@/hooks/use-settings";
@@ -2077,17 +2079,39 @@ function ComposerContentImpl({
   const handleCommandKeyPress = useCallback(
     (event: ComposerKeyPressEvent) => {
       if (autocompleteRef.current?.onKeyPress(event)) return true;
-      const recalledText = recall.handleKeyPress(event, () =>
-        selectAgentSentMessages(useSessionStore.getState().sessions[serverId], agentId).map(
-          ({ message }) => message.text,
-        ),
+      const draftKey = buildDraftStoreKey({ serverId, agentId });
+      const recalled = recall.handleKeyPress(
+        event,
+        () => {
+          const session = useSessionStore.getState().sessions[serverId];
+          const items = [
+            ...(session?.agentStreamTail.get(agentId) ?? []),
+            ...(session?.agentStreamHead.get(agentId) ?? []),
+          ];
+          return prepareRecallMessages(selectAgentSentMessages(session, agentId), items);
+        },
+        {
+          text: event.input.text,
+          unresolvedQuote: null,
+          comments: [
+            ...(useOutputCommentsStore.getState().drafts[draftKey] ?? EMPTY_PENDING_COMMENTS),
+          ],
+          attachments,
+        },
       );
-      if (recalledText === null) return false;
+      if (recalled === null) return false;
       event.preventDefault();
-      replaceUserInput(recalledText);
+      if (recalled.unresolvedQuote !== null) {
+        toast.error(t("outputComments.unresolved", { quote: recalled.unresolvedQuote }));
+        return true;
+      }
+      useOutputCommentsStore.getState().clearDraft(draftKey);
+      useOutputCommentsStore.getState().restoreComments({ draftKey, comments: recalled.comments });
+      replaceUserInput(recalled.text);
+      setSelectedAttachments(recalled.attachments);
       return true;
     },
-    [agentId, recall, replaceUserInput, serverId],
+    [agentId, attachments, recall, replaceUserInput, serverId, setSelectedAttachments, t, toast],
   );
 
   const cancelButtonStyle = useMemo(

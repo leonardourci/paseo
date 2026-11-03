@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ComposerKeyPressEvent } from "@/composer/input/input";
-import { ComposerRecall } from "@/composer/recall";
+import {
+  ComposerRecall,
+  prepareRecallMessages,
+  type ComposerRecallMessage,
+} from "@/composer/recall";
+
+function plainMessage(text: string): ComposerRecallMessage {
+  return { text, unresolvedQuote: null, comments: [], attachments: [] };
+}
 
 const SENT = ["add tests", "fix the auth bug"];
 
@@ -22,6 +30,7 @@ function press(
 function composerWithRecall(sent: readonly string[] = SENT) {
   const recall = new ComposerRecall();
   let text = "";
+  let draft: ComposerRecallMessage = plainMessage(text);
   return {
     recall,
     get text() {
@@ -31,9 +40,16 @@ function composerWithRecall(sent: readonly string[] = SENT) {
       text = next;
     },
     press(key: string, options: { caret?: number; hasModifier?: boolean } = {}) {
-      const result = recall.handleKeyPress(press(key, text, options), () => sent);
-      if (result !== null) text = result;
-      return result;
+      const result = recall.handleKeyPress(
+        press(key, text, options),
+        () => sent.map(plainMessage),
+        draft,
+      );
+      if (result !== null) {
+        text = result.text;
+        draft = result;
+      }
+      return result?.text ?? null;
     },
   };
 }
@@ -100,10 +116,88 @@ describe("ComposerRecall", () => {
     composer.press("ArrowUp");
     const recall = composer.recall;
     expect(
-      recall.handleKeyPress(
-        press("ArrowUp", "add tests", { caret: 0, selectionEnd: 3 }),
-        () => SENT,
+      recall.handleKeyPress(press("ArrowUp", "add tests", { caret: 0, selectionEnd: 3 }), () =>
+        SENT.map(plainMessage),
       ),
     ).toBeNull();
+  });
+});
+
+describe("prepareRecallMessages", () => {
+  it("restores a sent comment and its image against the output preceding its original message", () => {
+    const at = new Date(0);
+    const image = {
+      id: "note-image",
+      mimeType: "image/png",
+      storageType: "web-indexeddb" as const,
+      storageKey: "note-image",
+      createdAt: 0,
+    };
+    const first = {
+      kind: "assistant_message" as const,
+      id: "original",
+      text: "The repeated quote.",
+      timestamp: at,
+    };
+    const sent = {
+      kind: "user_message" as const,
+      id: "sent",
+      text: "Please revise.\n\n```paseo-comment msg=1\n> repeated quote\n\nclarify this\n[Image 1]\n```",
+      timestamp: at,
+      images: [image],
+    };
+    const newer = {
+      kind: "assistant_message" as const,
+      id: "newer",
+      text: "The repeated quote.",
+      timestamp: at,
+    };
+    const messages = prepareRecallMessages(
+      [{ message: sent, lastOutputId: "original" }],
+      [first, sent, newer],
+    );
+    expect(messages).toEqual([
+      {
+        text: "Please revise.",
+        unresolvedQuote: null,
+        comments: [
+          {
+            id: expect.any(String),
+            sourceItemId: "original",
+            quote: "repeated quote",
+            occurrence: 0,
+            isCode: false,
+            note: "clarify this",
+            imageIds: ["note-image"],
+          },
+        ],
+        attachments: [{ kind: "image", metadata: image }],
+      },
+    ]);
+  });
+  it("refuses to move a recalled comment when its original output has not been loaded", () => {
+    const at = new Date(0);
+    const wrong = {
+      kind: "assistant_message" as const,
+      id: "wrong",
+      text: "The repeated quote.",
+      timestamp: at,
+    };
+    const sent = {
+      kind: "user_message" as const,
+      id: "sent",
+      text: "Please revise.\n\n```paseo-comment msg=2\n> repeated quote\n\nclarify this\n```",
+      timestamp: at,
+    };
+    expect(
+      prepareRecallMessages([{ message: sent, lastOutputId: "wrong" }], [wrong, sent]),
+    ).toEqual([
+      {
+        text: "Please revise.",
+        unresolvedQuote: "repeated quote",
+        comments: [],
+        attachments: [],
+      },
+    ]);
   });
 });

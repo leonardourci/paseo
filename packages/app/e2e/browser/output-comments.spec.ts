@@ -1399,3 +1399,47 @@ test("pressing the mic takes focus where there is no output to comment on", asyn
     await seeded.cleanup();
   }
 });
+
+test("recall restores sent comments and images to their original output after more replies", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-recall-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "config", note: "keep this original note" });
+    await pasteImage(focusedNote(page));
+    await expect(cardImages(pendingCards(page))).toHaveCount(1);
+    await fillComposerDraft(page, "Please revise.");
+    await composerLocator(page).press("Enter");
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expect(assistantMessageText(page)).toHaveCount(2);
+    await expect(pendingCards(page)).toHaveCount(0);
+
+    await composerLocator(page).press("ArrowUp");
+    await expectComposerDraft(page, "Please revise.");
+    await expectNotes(page, ["keep this original note"]);
+    await expect(cardImages(pendingCards(page))).toHaveCount(1);
+    await expect(
+      historyRow(assistantMessageText(page).first()).getByTestId("output-comment-pending"),
+    ).toHaveCount(1);
+    await expect(
+      historyRow(assistantMessageText(page).last()).getByTestId("output-comment-pending"),
+    ).toHaveCount(0);
+
+    await composerLocator(page).press("Enter");
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expect(
+      historyRow(assistantMessageText(page).first()).getByTestId("output-comment-delivered"),
+    ).toHaveCount(2);
+    await expect(
+      historyRow(assistantMessageText(page).nth(1)).getByTestId("output-comment-delivered"),
+    ).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("dark-recalled-comments.png") });
+  } finally {
+    await agent.cleanup();
+  }
+});
