@@ -21,6 +21,7 @@ interface PresentationInput {
   autoExpandReasoning?: boolean;
   /** User messages whose collapsed turn the reader opened. */
   expandedTurnHostIds: ReadonlySet<string>;
+  keepVisibleItemIds?: ReadonlySet<string>;
   isTurnActive: boolean;
   activeTurnId?: string | null;
 }
@@ -82,6 +83,7 @@ export function createStreamPresentation() {
   let collapsedSource: StreamItem[] | undefined;
   let collapsedIsLatestTurnOpen = false;
   let collapsedExpandedHostIds: ReadonlySet<string> | undefined;
+  let collapsedKeepVisibleItemIds: ReadonlySet<string> | undefined;
   let collapsed: TurnCollapse | undefined;
 
   function presentRows(item: StreamItem): StreamItem[] {
@@ -127,17 +129,20 @@ export function createStreamPresentation() {
       !collapsed ||
       collapsedSource !== projection.tail ||
       collapsedIsLatestTurnOpen !== isLatestTurnOpen ||
-      collapsedExpandedHostIds !== input.expandedTurnHostIds
+      collapsedExpandedHostIds !== input.expandedTurnHostIds ||
+      collapsedKeepVisibleItemIds !== input.keepVisibleItemIds
     ) {
       collapsed = collapseTurns({
         tail: projection.tail,
         isLatestTurnOpen,
         expandedHostIds: input.expandedTurnHostIds,
+        keepVisibleItemIds: input.keepVisibleItemIds,
         getGroupedCalls: (itemId) => projection.groupsByHostId.get(itemId)?.run.calls,
       });
       collapsedSource = projection.tail;
       collapsedIsLatestTurnOpen = isLatestTurnOpen;
       collapsedExpandedHostIds = input.expandedTurnHostIds;
+      collapsedKeepVisibleItemIds = input.keepVisibleItemIds;
     }
     const { tail, ...turns } = collapsed;
     if (turns.nestedItemIds.size === 0) return { ...projection, tail, turns };

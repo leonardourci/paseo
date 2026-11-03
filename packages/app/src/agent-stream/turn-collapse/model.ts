@@ -34,6 +34,7 @@ export interface CollapseTurnsInput {
   /** The latest turn is still producing output, so it stays unfolded. */
   isLatestTurnOpen: boolean;
   expandedHostIds: ReadonlySet<string>;
+  keepVisibleItemIds?: ReadonlySet<string>;
   /** The calls a tool-call group row stands for; undefined for a single call. */
   getGroupedCalls: (itemId: string) => readonly (ToolCallItem | ThoughtItem)[] | undefined;
 }
@@ -104,7 +105,8 @@ export function collapseTurns(input: CollapseTurnsInput): TurnCollapse {
       output.push(...tail.slice(runStart, runEnd));
       return;
     }
-    const expanded = input.expandedHostIds.has(host.id);
+    const hasPendingComment = folded.some((item) => input.keepVisibleItemIds?.has(item.id));
+    const expanded = input.expandedHostIds.has(host.id) || hasPendingComment;
     turnsByHostId.set(host.id, { hostId: host.id, expanded, summary });
     const revealed = expanded
       ? folded.flatMap<StreamItem>((item) =>

@@ -1443,3 +1443,34 @@ test("recall restores sent comments and images to their original output after mo
     await agent.cleanup();
   }
 });
+
+test("a pending comment keeps its intermediate reply reachable when its turn finishes", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() =>
+    localStorage.setItem("@paseo:app-settings", JSON.stringify({ chatDisplay: "collapseTurns" })),
+  );
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "output-comments-fold-",
+    title: "Comments while folding",
+    model: "ten-second-stream",
+    initialPrompt: "Explain the scroll anchor.",
+  });
+  try {
+    await openAgentRoute(page, agent);
+    await expect(assistantMessageText(page).first()).toContainText("scroll anchor behavior", {
+      timeout: 30_000,
+    });
+    await commentOn(page, { quote: "scroll anchor behavior", note: "keep this visible" });
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expectNotes(page, ["keep this visible"]);
+    await expect(pendingCards(page)).toHaveCount(1);
+    await composerPill(page).click();
+    await expect(focusedNote(page)).toHaveValue("keep this visible");
+    await expect(focusedNote(page)).toBeInViewport();
+    await expect(assistantMessageText(page).first()).toContainText("scroll anchor behavior");
+  } finally {
+    await agent.cleanup();
+  }
+});

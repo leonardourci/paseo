@@ -1,3 +1,6 @@
+import { useShallow } from "zustand/shallow";
+import { useOutputCommentsStore, EMPTY_PENDING_COMMENTS } from "@/output-comments/store";
+import { buildDraftStoreKey } from "@/stores/draft-keys";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -524,6 +527,17 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const effectiveStreamHead = useRetainedValue(streamHead, isActive);
     const effectiveTurnPresentation = useRetainedValue(turnPresentation, isActive);
     const isTurnActive = effectiveTurnPresentation.isActive;
+    const commentsDraftKey = buildDraftStoreKey({ serverId: resolvedServerId, agentId });
+    const commentSourceIds = useOutputCommentsStore(
+      useShallow((state) => [
+        ...new Set(
+          (state.drafts[commentsDraftKey] ?? EMPTY_PENDING_COMMENTS).map(
+            (comment) => comment.sourceItemId,
+          ),
+        ),
+      ]),
+    );
+    const keepVisibleItemIds = useMemo(() => new Set(commentSourceIds), [commentSourceIds]);
     const presentStream = useMemo(() => createStreamPresentation(), []);
     const presentation = useMemo(
       () =>
@@ -534,6 +548,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           display: chatDisplay,
           autoExpandReasoning,
           expandedTurnHostIds,
+          keepVisibleItemIds,
           isTurnActive,
           activeTurnId: effectiveTurnPresentation.turnId,
         }),
@@ -545,6 +560,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         chatDisplay,
         autoExpandReasoning,
         expandedTurnHostIds,
+        keepVisibleItemIds,
         isTurnActive,
         effectiveTurnPresentation.turnId,
       ],
@@ -1178,7 +1194,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           // until a group actually forms there.
           has: (id: string) =>
             (expandedToolCallGroups.has(id) && getToolCallGroup(id) !== undefined) ||
-            expandedTurnHostIds.has(id) ||
+            presentation.turns.turnsByHostId.get(id)?.expanded === true ||
             nestedItemIds.has(id),
         },
         globalDisplayState: isMobile,
@@ -1186,7 +1202,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [
         expandedToolCallGroups,
         getToolCallGroup,
-        expandedTurnHostIds,
+        presentation.turns.turnsByHostId,
         isMobile,
         nestedItemIds,
         presentation.historyGroupUpdatesByHostId,

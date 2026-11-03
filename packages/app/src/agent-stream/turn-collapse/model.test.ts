@@ -48,6 +48,15 @@ function collapse(tail: StreamItem[], options: Partial<CollapseTurnsInput> = {})
 const ids = (items: StreamItem[]) => items.map((item) => item.id);
 
 describe("collapseTurns", () => {
+  it("keeps an intermediate reply visible while it has a pending comment", () => {
+    const result = collapse([user("u1"), reply("intermediate"), shell("c1"), reply("final")], {
+      keepVisibleItemIds: new Set(["intermediate"]),
+    });
+    expect(ids(result.tail)).toEqual(["u1", "intermediate", "c1", "final"]);
+    expect(result.turnsByHostId.get("u1")?.expanded).toBe(true);
+    expect(result.hostIdByHiddenRowId.size).toBe(0);
+  });
+
   it("maps hidden rows only while their turn is closed", () => {
     const result = collapse([user("u1"), shell("c1"), reply("final")]);
     expect(result.hostIdByHiddenRowId.get("c1")).toBe("u1");
