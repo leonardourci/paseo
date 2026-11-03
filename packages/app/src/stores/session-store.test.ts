@@ -282,11 +282,12 @@ describe("agent timeline state", () => {
       acknowledgedClientMessageIds: [],
     });
 
-    expect(selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"))
-      .toEqual([
-        { message: head, lastOutputId: undefined },
-        { message: tail, lastOutputId: undefined },
-      ]);
+    expect(
+      selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"),
+    ).toEqual([
+      { message: head, lastOutputId: undefined },
+      { message: tail, lastOutputId: undefined },
+    ]);
   });
 
   it("preserves older availability when an applied response leaves it unchanged", () => {
