@@ -260,6 +260,35 @@ describe("agent timeline state", () => {
     expect(selectAgentSentMessages(undefined, "agent-1")).toEqual([]);
   });
 
+  it("includes image-only messages from the tail and head in recall history", () => {
+    initializeTestSession();
+    const image = {
+      id: "image-1",
+      mimeType: "image/png",
+      storageType: "web-indexeddb" as const,
+      storageKey: "image-1",
+      createdAt: 0,
+    };
+    const tail = { ...submittedMessage("tail"), text: "", images: [image] };
+    const head = { ...submittedMessage("head"), text: "  ", images: [image] };
+    const empty = { ...submittedMessage("empty"), text: "", images: [] };
+    useSessionStore.getState().applyAgentTimelineResponseState("test-server", "agent-1", {
+      items: [tail, empty],
+      head: [head],
+      range: { epoch: "epoch-1", startSeq: 1, endSeq: 3 },
+      older: "none",
+      newer: false,
+      synchronized: true,
+      acknowledgedClientMessageIds: [],
+    });
+
+    expect(selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"))
+      .toEqual([
+        { message: head, lastOutputId: undefined },
+        { message: tail, lastOutputId: undefined },
+      ]);
+  });
+
   it("preserves older availability when an applied response leaves it unchanged", () => {
     initializeTestSession();
     const store = useSessionStore.getState();

@@ -351,7 +351,8 @@ export function selectAgentSentMessages(
   let lastOutputId: string | undefined;
   for (const item of items) {
     if (item.kind === "assistant_message") lastOutputId = item.id;
-    if (item.kind !== "user_message" || item.text.trim().length === 0) continue;
+    if (item.kind !== "user_message" || (item.text.trim().length === 0 && !item.images?.length))
+      continue;
     messages.push({ message: item, lastOutputId });
   }
   return messages.toReversed();
