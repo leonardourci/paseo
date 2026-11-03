@@ -130,7 +130,8 @@ export class ComposerRecall {
     if (message === undefined) return null;
     this.recalled = {
       index,
-      message: message.unresolvedQuote === null ? message : (this.recalled?.message ?? EMPTY_MESSAGE),
+      message:
+        message.unresolvedQuote === null ? message : (this.recalled?.message ?? EMPTY_MESSAGE),
     };
     return message;
   }

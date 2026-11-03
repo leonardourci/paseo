@@ -61,7 +61,11 @@ describe("ComposerRecall", () => {
     const messages = [missing, plainMessage("older"), missing, plainMessage("oldest")];
     let draft = plainMessage("");
     const navigate = (key: string) => {
-      const result = recall.handleKeyPress(press(key, draft.text, { caret: 0 }), () => messages, draft);
+      const result = recall.handleKeyPress(
+        press(key, draft.text, { caret: 0 }),
+        () => messages,
+        draft,
+      );
       if (result && result.unresolvedQuote === null) draft = result;
       return result;
     };
