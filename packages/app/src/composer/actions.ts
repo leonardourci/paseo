@@ -44,7 +44,6 @@ export interface AttachmentPersister {
     mimeType: string;
     fileName: string | null;
   }) => Promise<AttachmentMetadata>;
-  deleteAttachments: (metadata: AttachmentMetadata[]) => Promise<void> | void;
 }
 
 export interface ComposerSendClient {
@@ -160,12 +159,7 @@ export async function uploadFileAttachments(input: {
 export function removeComposerAttachmentAtIndex<T extends ComposerAttachment>(input: {
   attachments: T[];
   index: number;
-  deleteAttachments: AttachmentPersister["deleteAttachments"];
 }): T[] {
-  const removed = input.attachments[input.index];
-  if (removed?.kind === "image") {
-    void input.deleteAttachments([removed.metadata]);
-  }
   return input.attachments.filter((_, i) => i !== input.index);
 }
 

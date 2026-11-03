@@ -111,7 +111,6 @@ import {
   useHostRuntimeIsConnected,
 } from "@/runtime/host-runtime";
 import {
-  deleteAttachments,
   persistAttachmentFromBlob,
   persistAttachmentFromDataUrl,
   persistAttachmentFromFileUri,
@@ -1937,7 +1936,7 @@ function ComposerContentImpl({
         return;
       }
       setSelectedAttachments((prev) =>
-        removeComposerAttachmentAtIndex({ attachments: prev, index, deleteAttachments }),
+        removeComposerAttachmentAtIndex({ attachments: prev, index }),
       );
     },
     [removeAttachment, selectedAttachments, setSelectedAttachments],

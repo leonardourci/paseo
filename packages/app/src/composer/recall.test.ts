@@ -55,6 +55,28 @@ function composerWithRecall(sent: readonly string[] = SENT) {
 }
 
 describe("ComposerRecall", () => {
+  it("passes unresolved entries in both directions without replacing the visible draft", () => {
+    const recall = new ComposerRecall();
+    const missing = { ...plainMessage("missing"), unresolvedQuote: "original quote" };
+    const messages = [missing, plainMessage("older"), missing, plainMessage("oldest")];
+    let draft = plainMessage("");
+    const navigate = (key: string) => {
+      const result = recall.handleKeyPress(press(key, draft.text, { caret: 0 }), () => messages, draft);
+      if (result && result.unresolvedQuote === null) draft = result;
+      return result;
+    };
+    expect(navigate("ArrowUp")).toEqual(missing);
+    expect(draft.text).toBe("");
+    expect(navigate("ArrowUp")?.text).toBe("older");
+    expect(navigate("ArrowUp")).toEqual(missing);
+    expect(draft.text).toBe("older");
+    expect(navigate("ArrowUp")?.text).toBe("oldest");
+    expect(navigate("ArrowDown")).toEqual(missing);
+    expect(draft.text).toBe("oldest");
+    expect(navigate("ArrowDown")?.text).toBe("older");
+    expect(navigate("ArrowDown")).toEqual(missing);
+    expect(navigate("ArrowDown")?.text).toBe("");
+  });
   it("walks back through sent messages and forward to an empty composer", () => {
     const composer = composerWithRecall();
 

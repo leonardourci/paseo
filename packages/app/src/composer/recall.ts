@@ -128,8 +128,10 @@ export class ComposerRecall {
   ): ComposerRecallMessage | null {
     const message = messages[index];
     if (message === undefined) return null;
-    if (message.unresolvedQuote !== null) return message;
-    this.recalled = { index, message };
+    this.recalled = {
+      index,
+      message: message.unresolvedQuote === null ? message : (this.recalled?.message ?? EMPTY_MESSAGE),
+    };
     return message;
   }
 }
