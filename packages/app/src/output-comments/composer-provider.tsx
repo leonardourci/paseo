@@ -1,6 +1,5 @@
 import { useCallback, useId, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { deleteAttachments } from "@/attachments/service";
 import type { UserComposerAttachment } from "@/attachments/types";
 import { removeComposerAttachmentAtIndex } from "@/composer/actions";
 import type { AgentInputDraft } from "@/composer/draft/input-draft";
@@ -55,7 +54,7 @@ export function OutputCommentsComposerProvider({
         const index = current.findIndex(
           (attachment) => attachment.kind === "image" && attachment.metadata.id === id,
         );
-        return removeComposerAttachmentAtIndex({ attachments: current, index, deleteAttachments });
+        return removeComposerAttachmentAtIndex({ attachments: current, index });
       }),
     [setAttachments],
   );

@@ -236,34 +236,35 @@ export function PendingOutputCommentCard({
       style={[cardStyles.card, styles.card, isActive && cardStyles.active]}
       testID="output-comment-pending"
     >
-      <AutocompletePopover {...mentions.popover} anchorRef={cardRef} />
-      <QuoteLine replyText={replyText} anchor={comment} />
-      <View style={styles.row}>
-        <OutputCommentBadge number={number} isHighlighted={isActive} />
-        <NoteInput
-          ref={inputRef}
-          multiline
-          initialValue={note}
-          onChangeText={handleChangeText}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onKeyPress={handleKeyPress}
-          onSelectionChange={mentions.onSelectionChange}
-          placeholder={t("outputComments.placeholder")}
-          accessibilityLabel={t("outputComments.inputLabel")}
-          style={styles.noteInput}
-          testID="output-comment-input"
-        />
-        <Button
-          variant="ghost"
-          size="xs"
-          leftIcon={X}
-          onPress={handleRemove}
-          accessibilityLabel={t("outputComments.remove")}
-          testID="output-comment-remove"
-        />
-      </View>
-      <NoteImages images={images} onRemove={handleRemoveImage} />
+      <AutocompletePopover {...mentions.popover}>
+        <QuoteLine replyText={replyText} anchor={comment} />
+        <View style={styles.row}>
+          <OutputCommentBadge number={number} isHighlighted={isActive} />
+          <NoteInput
+            ref={inputRef}
+            multiline
+            initialValue={note}
+            onChangeText={handleChangeText}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onKeyPress={handleKeyPress}
+            onSelectionChange={mentions.onSelectionChange}
+            placeholder={t("outputComments.placeholder")}
+            accessibilityLabel={t("outputComments.inputLabel")}
+            style={styles.noteInput}
+            testID="output-comment-input"
+          />
+          <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={X}
+            onPress={handleRemove}
+            accessibilityLabel={t("outputComments.remove")}
+            testID="output-comment-remove"
+          />
+        </View>
+        <NoteImages images={images} onRemove={handleRemoveImage} />
+      </AutocompletePopover>
     </PressHighlight>
   );
 }

@@ -146,17 +146,14 @@ function createFakePersister(): AttachmentPersister & {
   blobCalls: Array<{ blob: Blob; mimeType: string; fileName: string | null }>;
   dataUrlCalls: Array<{ dataUrl: string; mimeType: string; fileName: string | null }>;
   fileUriCalls: Array<{ uri: string; mimeType: string; fileName: string | null }>;
-  deletedBatches: AttachmentMetadata[][];
 } {
   const blobCalls: Array<{ blob: Blob; mimeType: string; fileName: string | null }> = [];
   const dataUrlCalls: Array<{ dataUrl: string; mimeType: string; fileName: string | null }> = [];
   const fileUriCalls: Array<{ uri: string; mimeType: string; fileName: string | null }> = [];
-  const deletedBatches: AttachmentMetadata[][] = [];
   return {
     blobCalls,
     dataUrlCalls,
     fileUriCalls,
-    deletedBatches,
     persistFromBlob: async ({ blob, mimeType, fileName }) => {
       blobCalls.push({ blob, mimeType, fileName });
       return { ...imageMetadata, id: `blob-${blobCalls.length}` };
@@ -168,9 +165,6 @@ function createFakePersister(): AttachmentPersister & {
     persistFromFileUri: async ({ uri, mimeType, fileName }) => {
       fileUriCalls.push({ uri, mimeType, fileName });
       return { ...imageMetadata, id: `uri-${fileUriCalls.length}` };
-    },
-    deleteAttachments: (metadata) => {
-      deletedBatches.push(metadata);
     },
   };
 }
@@ -852,30 +846,24 @@ describe("sendQueuedComposerMessageNow", () => {
 });
 
 describe("removeComposerAttachmentAtIndex", () => {
-  it("removes an image attachment and asks the persister to delete the underlying metadata", () => {
+  it("removes an image attachment from the draft", () => {
     const image = imageWithId("img-remove");
-    const persister = createFakePersister();
     const next = removeComposerAttachmentAtIndex({
       attachments: [{ kind: "image", metadata: image }] satisfies UserComposerAttachment[],
       index: 0,
-      deleteAttachments: persister.deleteAttachments,
     });
     expect(next).toEqual([]);
-    expect(persister.deletedBatches).toEqual([[image]]);
   });
 
   it("removes a github attachment without scheduling any storage deletes", () => {
-    const persister = createFakePersister();
     const next = removeComposerAttachmentAtIndex({
       attachments: [
         { kind: "github_issue", item: issueItem },
         { kind: "github_pr", item: prItem },
       ] satisfies UserComposerAttachment[],
       index: 0,
-      deleteAttachments: persister.deleteAttachments,
     });
     expect(next).toEqual([{ kind: "github_pr", item: prItem }]);
-    expect(persister.deletedBatches).toEqual([]);
   });
 });
 

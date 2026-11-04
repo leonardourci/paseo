@@ -24,7 +24,7 @@ import {
   isOutputPosition,
   isPendingNote,
   isRowAheadUnmounted,
-  lastNoteAfter,
+  lastNoteInReply,
   latestReplyEnd,
   latestReplyStart,
   nearestRowText,
@@ -455,8 +455,7 @@ function attachCaret({
     if (!position) return false;
     event.preventDefault();
     stopFollowingOutput();
-    // The latest reply's comment cards stand between its text and the composer.
-    const note = lastNoteAfter(scroller, position);
+    const note = lastNoteInReply(position);
     if (note) enterNote(note, "backward");
     else jumpTo(position);
     return true;

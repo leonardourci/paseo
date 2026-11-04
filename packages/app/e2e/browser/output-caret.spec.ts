@@ -44,6 +44,7 @@ import {
   assistantMessageText,
   clickAssistantText,
   commentOn,
+  composerPill,
   dispatchInputAtOnce,
   expectCommentHighlights,
   expectNotes,
@@ -390,7 +391,7 @@ test("the caret selects by key to comment on or quote, and moves into notes and 
       ]);
     });
 
-    // The card follows the whole reply, so the note sits after its last paragraph.
+    // The note follows its quoted paragraph, so leaving it resumes at that paragraph.
     await test.step("arrows carry the caret into the note and out on either side", async () => {
       await page.keyboard.press("ArrowDown");
       await expect(focusedNote(page)).toHaveCount(1);
@@ -399,14 +400,15 @@ test("the caret selects by key to comment on or quote, and moves into notes and 
 
       await page.keyboard.press("ArrowUp");
       await expect(focusedNote(page)).toHaveCount(0);
-      await expect.poll(async () => (await caretSpot(page))?.text).toBe(LAST);
+      await expect.poll(async () => (await caretSpot(page))?.text).toBe(FIRST);
 
       await page.keyboard.press("ArrowDown");
       await expect(focusedNote(page)).toHaveCount(1);
       await page.keyboard.press("ArrowDown");
       await expect(focusedNote(page)).toHaveCount(0);
-      await expect(composerLocator(page)).toBeFocused();
+      await expect.poll(async () => (await caretSpot(page))?.text).toBe(SECOND);
 
+      await composerLocator(page).focus();
       await page.keyboard.press("ArrowUp");
       await expect(focusedNote(page)).toHaveCount(1);
       await expect.poll(() => focusedNoteCursor(page)).toBe("why parser?".length);
@@ -451,10 +453,7 @@ test("the caret selects by key to comment on or quote, and moves into notes and 
 
       await page.keyboard.press("ArrowUp");
 
-      // Its card stood under the other one, so the caret steps into that note on its way up.
       await expect(pendingCards(page)).toHaveCount(1);
-      await expect(focusedNote(page)).toHaveValue("why parser?");
-      await page.keyboard.press("ArrowUp");
       await expect(focusedNote(page)).toHaveCount(0);
       await expect.poll(async () => (await caretSpot(page))?.text).toBe(LAST);
       await expectCaret(page, true);
@@ -680,8 +679,11 @@ test("while a reply streams the caret and a selection keep their place, and Esca
     await test.step("Escape leaves a note, then hides the caret, which stays hidden as the reply streams", async () => {
       await pressTimes(page, "Shift+ArrowRight", 6);
       await page.keyboard.press("Enter");
-      await expect(focusedNote(page)).toHaveCount(1);
+      await expect(pendingCards(page)).toHaveCount(1);
       await page.keyboard.type("note");
+      await expectNotes(page, ["note"]);
+      await composerPill(page).click();
+      await expect(focusedNote(page)).toHaveCount(1);
 
       await page.keyboard.press("Escape");
       await expect(focusedNote(page)).toHaveCount(0);

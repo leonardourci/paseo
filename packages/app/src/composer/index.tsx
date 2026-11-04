@@ -1,3 +1,4 @@
+import { buildDraftStoreKey } from "@/stores/draft-keys";
 import {
   useComposerEditingSession,
   useComposerFullscreen,
@@ -55,7 +56,11 @@ import {
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
-import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
+import {
+  selectAgentSentMessages,
+  selectAgentTurnPresentation,
+  useSessionStore,
+} from "@/stores/session-store";
 import { useFilePicker } from "@/hooks/use-file-picker";
 import { useFileDrop } from "@/components/file-drop/use-file-drop";
 import type { DroppedItem } from "@/components/file-drop/types";
@@ -67,7 +72,7 @@ import {
 } from "./input/input";
 import type { ImageAttachment, MessagePayload, TextReplacement } from "./types";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
-import type { DraftCommandTarget } from "@/hooks/use-agent-commands-query";
+import type { DraftCommandTarget } from "@/agent-commands";
 import { encodeImages } from "@/utils/encode-images";
 import { focusWithRetries } from "@/utils/web-focus";
 import {
@@ -106,7 +111,6 @@ import {
   useHostRuntimeIsConnected,
 } from "@/runtime/host-runtime";
 import {
-  deleteAttachments,
   persistAttachmentFromBlob,
   persistAttachmentFromDataUrl,
   persistAttachmentFromFileUri,
@@ -118,6 +122,8 @@ import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import { submitAgentInput } from "@/composer/submit";
+import { ComposerRecall, prepareRecallMessages } from "@/composer/recall";
+import { useOutputCommentsStore, EMPTY_PENDING_COMMENTS } from "@/output-comments/store";
 import { createMessageSubmissionWriter } from "@/composer/submission/writer";
 import { ComposerKeyboardScopeProvider, useComposerKeyboardScope } from "@/composer/keyboard-scope";
 import { useAppSettings } from "@/hooks/use-settings";
@@ -323,6 +329,7 @@ interface PendingFileAttachment {
 }
 
 interface RenderAttachmentTrayArgs {
+  serverId: string;
   selectedAttachments: ComposerAttachment[];
   pendingFiles: PendingFileAttachment[];
   outputCommentCount: number;
@@ -342,6 +349,7 @@ interface RenderAttachmentTrayArgs {
 
 function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | null {
   const {
+    serverId,
     selectedAttachments,
     pendingFiles,
     outputCommentCount,
@@ -367,6 +375,7 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
       ) : null}
       {selectedAttachments.map((attachment, index) =>
         renderComposerAttachmentPill({
+          serverId,
           attachment,
           index,
           disabled: isComposerLocked,
@@ -417,6 +426,7 @@ function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
 }
 
 interface RenderComposerAttachmentPillArgs {
+  serverId: string;
   attachment: ComposerAttachment;
   index: number;
   disabled: boolean;
@@ -477,6 +487,7 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
   if (attachment.kind === "plugin_resource") {
     return (
       <PluginResourceAttachmentPill
+        serverId={args.serverId}
         key={`${attachment.pluginId}:${attachment.sourceId}:${attachment.item.id}`}
         attachment={attachment}
         index={index}
@@ -1019,20 +1030,24 @@ interface ComposerAutocompleteHandle {
 function ComposerAutocompleteBinding({
   text,
   cursor,
+  recall,
   configuration,
   inputRef,
-  anchorRef,
+  children,
+  anchorStyle,
   show,
   ref,
 }: {
   text: ComposerTextSource;
   cursor: StoreApi<number>;
+  recall: ComposerRecall;
   configuration: Omit<
     Parameters<typeof useAgentAutocomplete>[0],
     "userInput" | "cursorIndex" | "onAutocompleteApplied"
   >;
   inputRef: React.RefObject<MessageInputRef | null>;
-  anchorRef: React.RefObject<View | null>;
+  children: React.ReactNode;
+  anchorStyle: React.ComponentProps<typeof View>["style"];
   show: boolean;
   ref: React.Ref<ComposerAutocompleteHandle>;
 }) {
@@ -1044,9 +1059,11 @@ function ComposerAutocompleteBinding({
     cursorIndex: Math.min(cursorIndex, userInput.length),
     onAutocompleteApplied: () => inputRef.current?.focus(),
   });
+  // A recalled message is sent as is; its leading `/command` must not open the picker.
+  const isShown = show && !recall.isShowing(userInput);
   const handleKeyPress = autocomplete.onKeyPress;
-  useImperativeHandle(ref, () => ({ onKeyPress: (event) => show && handleKeyPress(event) }), [
-    show,
+  useImperativeHandle(ref, () => ({ onKeyPress: (event) => isShown && handleKeyPress(event) }), [
+    isShown,
     handleKeyPress,
   ]);
   const selectOption = autocomplete.onSelectOption;
@@ -1056,8 +1073,8 @@ function ComposerAutocompleteBinding({
   );
   return (
     <ComposerAutocomplete
-      visible={autocomplete.isVisible && show}
-      anchorRef={anchorRef}
+      visible={autocomplete.isVisible && isShown}
+      anchorStyle={anchorStyle}
       options={autocomplete.options}
       selectedIndex={autocomplete.selectedIndex}
       onSelect={onSelect}
@@ -1065,7 +1082,9 @@ function ComposerAutocompleteBinding({
       errorMessage={autocomplete.errorMessage}
       loadingText={autocomplete.loadingText}
       emptyText={autocomplete.emptyText}
-    />
+    >
+      {children}
+    </ComposerAutocomplete>
   );
 }
 
@@ -1395,6 +1414,7 @@ function ComposerContentImpl({
   );
   useEffect(() => () => cursorPublication.cancel(), [cursorPublication]);
   const autocompleteRef = useRef<ComposerAutocompleteHandle>(null);
+  const recall = useMemo(() => new ComposerRecall(), []);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFileAttachment[]>([]);
   const nextPendingFileId = useRef(0);
@@ -1916,7 +1936,7 @@ function ComposerContentImpl({
         return;
       }
       setSelectedAttachments((prev) =>
-        removeComposerAttachmentAtIndex({ attachments: prev, index, deleteAttachments }),
+        removeComposerAttachmentAtIndex({ attachments: prev, index }),
       );
     },
     [removeAttachment, selectedAttachments, setSelectedAttachments],
@@ -2054,10 +2074,43 @@ function ComposerContentImpl({
 
   const hasSendableContent = hasText || selectedAttachments.length > 0 || outputCommentCount > 0;
 
-  // Handle keyboard navigation for command autocomplete.
+  // An open autocomplete owns the arrows; otherwise they may recall sent messages.
   const handleCommandKeyPress = useCallback(
-    (event: ComposerKeyPressEvent) => autocompleteRef.current?.onKeyPress(event) ?? false,
-    [],
+    (event: ComposerKeyPressEvent) => {
+      if (autocompleteRef.current?.onKeyPress(event)) return true;
+      const draftKey = buildDraftStoreKey({ serverId, agentId });
+      const recalled = recall.handleKeyPress(
+        event,
+        () => {
+          const session = useSessionStore.getState().sessions[serverId];
+          const items = [
+            ...(session?.agentStreamTail.get(agentId) ?? []),
+            ...(session?.agentStreamHead.get(agentId) ?? []),
+          ];
+          return prepareRecallMessages(selectAgentSentMessages(session, agentId), items);
+        },
+        {
+          text: event.input.text,
+          unresolvedQuote: null,
+          comments: [
+            ...(useOutputCommentsStore.getState().drafts[draftKey] ?? EMPTY_PENDING_COMMENTS),
+          ],
+          attachments,
+        },
+      );
+      if (recalled === null) return false;
+      event.preventDefault();
+      if (recalled.unresolvedQuote !== null) {
+        toast.error(t("outputComments.unresolved", { quote: recalled.unresolvedQuote }));
+        return true;
+      }
+      useOutputCommentsStore.getState().clearDraft(draftKey);
+      useOutputCommentsStore.getState().restoreComments({ draftKey, comments: recalled.comments });
+      replaceUserInput(recalled.text);
+      setSelectedAttachments(recalled.attachments);
+      return true;
+    },
+    [agentId, attachments, recall, replaceUserInput, serverId, setSelectedAttachments, t, toast],
   );
 
   const cancelButtonStyle = useMemo(
@@ -2373,6 +2426,7 @@ function ComposerContentImpl({
   const attachmentTray = useMemo(
     () =>
       renderAttachmentTray({
+        serverId,
         selectedAttachments,
         pendingFiles,
         outputCommentCount,
@@ -2398,6 +2452,7 @@ function ComposerContentImpl({
       openOutputComments,
       outputCommentCount,
       removeOutputComments,
+      serverId,
       selectedAttachments,
       pendingFiles,
       t,
@@ -2437,7 +2492,6 @@ function ComposerContentImpl({
       pluginClientSlashCommands,
     ],
   );
-  const messageInputContainerRef = useRef<View>(null);
 
   const isSubmitLoadingVisible =
     isProcessing || isSubmitLoading || isUploadingFile || pendingNativeImagePastes > 0;
@@ -2496,16 +2550,16 @@ function ComposerContentImpl({
             {isFullscreen ? null : queueList}
             {!isFullscreen && sendErrorNode}
 
-            <View ref={messageInputContainerRef} style={messageInputContainerStyle}>
-              <ComposerAutocompleteBinding
-                text={textSource}
-                cursor={cursor}
-                inputRef={messageInputRef}
-                anchorRef={messageInputContainerRef}
-                show={mode.showAutocomplete && !isFullscreen}
-                ref={autocompleteRef}
-                configuration={autocompleteConfiguration}
-              />
+            <ComposerAutocompleteBinding
+              text={textSource}
+              cursor={cursor}
+              recall={recall}
+              inputRef={messageInputRef}
+              anchorStyle={messageInputContainerStyle}
+              show={mode.showAutocomplete && !isFullscreen}
+              ref={autocompleteRef}
+              configuration={autocompleteConfiguration}
+            >
               <ComposerForgeBinding
                 text={textSource}
                 configuration={forgeConfiguration}
@@ -2550,6 +2604,7 @@ function ComposerContentImpl({
                   voiceAgentId={agentId}
                   isAgentRunning={isAgentRunning}
                   defaultSendBehavior={activeSendBehavior}
+                  sendShortcut={appSettings.sendShortcut}
                   onQueue={handleQueue}
                   onSubmitLoadingPress={submitLoadingPressHandler}
                   onKeyPress={handleCommandKeyPress}
@@ -2585,7 +2640,7 @@ function ComposerContentImpl({
                 renderOption={renderGithubPickerOption}
               />
               {pluginAttachments.picker}
-            </View>
+            </ComposerAutocompleteBinding>
           </View>
         </View>
       </View>

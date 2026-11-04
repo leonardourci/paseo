@@ -1,4 +1,5 @@
 import type { SelectedFile } from "@/attachments/selected-file";
+import { FILE_UPLOAD_MAX_BYTES } from "@/attachments/upload-limit";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type { ActiveTurnBehavior } from "@getpaseo/protocol/messages";
 import type {
@@ -43,7 +44,6 @@ export interface AttachmentPersister {
     mimeType: string;
     fileName: string | null;
   }) => Promise<AttachmentMetadata>;
-  deleteAttachments: (metadata: AttachmentMetadata[]) => Promise<void> | void;
 }
 
 export interface ComposerSendClient {
@@ -56,7 +56,7 @@ export interface ComposerSendClient {
       images: Array<{ data: string; mimeType: string }>;
       attachments: ReturnType<typeof splitComposerAttachmentsForSubmit>["attachments"];
     },
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   uploadFile: (input: { fileName: string; mimeType: string; bytes: Uint8Array }) => Promise<{
     requestId: string;
     file: {
@@ -133,7 +133,7 @@ export async function uploadFileAttachments(input: {
 
   for (const file of input.files) {
     const bytes = await file.readBytes();
-    if (bytes.byteLength > 50 * 1024 * 1024) {
+    if (bytes.byteLength > FILE_UPLOAD_MAX_BYTES) {
       throw new Error(
         i18n.t("composer.errors.fileTooLarge", { size: "50MB", fileName: file.fileName }),
       );
@@ -159,12 +159,7 @@ export async function uploadFileAttachments(input: {
 export function removeComposerAttachmentAtIndex<T extends ComposerAttachment>(input: {
   attachments: T[];
   index: number;
-  deleteAttachments: AttachmentPersister["deleteAttachments"];
 }): T[] {
-  const removed = input.attachments[input.index];
-  if (removed?.kind === "image") {
-    void input.deleteAttachments([removed.metadata]);
-  }
   return input.attachments.filter((_, i) => i !== input.index);
 }
 

@@ -45,6 +45,7 @@ interface CommentTargetInput {
   items: readonly StreamItem[];
   end: number;
   comment: OutputComment;
+  requireOrdinal?: boolean;
 }
 
 interface QuoteSnippet {
@@ -265,12 +266,14 @@ export function findCommentTarget({
   items,
   end,
   comment,
+  requireOrdinal = false,
 }: CommentTargetInput): CommentTarget | null {
   const named =
     comment.messageOrdinal === undefined
       ? null
       : assistantMessageBefore(items, end, comment.messageOrdinal);
   if (named && holdsQuote(named, comment)) return { sourceItemId: named.id };
+  if (requireOrdinal) return null;
   for (let index = end - 1; index >= 0; index -= 1) {
     const candidate = items[index];
     if (candidate?.kind === "assistant_message" && holdsQuote(candidate, comment)) {

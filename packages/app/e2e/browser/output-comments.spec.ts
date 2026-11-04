@@ -730,6 +730,13 @@ test("cards follow their quoted blocks while badges stay in reading order, befor
     );
     await expect.poll(() => blocksBeforeCards(page)).toEqual(LIST_CARD_BLOCKS);
 
+    const sent = sentUserMessage(page, "Please revise.");
+    await sentCommentsToggle(sent).click();
+    await expect(sentCommentCards(sent)).toHaveCount(4);
+    await expect(sent.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0);
+    await sentCommentCards(sent).last().scrollIntoViewIfNeeded();
+    await expect(sentCommentCards(sent).last()).toBeInViewport();
+
     // A fence sent before quotes anchored to the whole reply names a block and list item.
     await agent.client.sendAgentMessage(
       agent.agentId,
@@ -1390,5 +1397,108 @@ test("pressing the mic takes focus where there is no output to comment on", asyn
     await page.mouse.up();
   } finally {
     await seeded.cleanup();
+  }
+});
+
+test("recall restores sent comments and images to their original output after more replies", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  const agent = await openAnsweredAgent(page, {
+    repoPrefix: "output-comments-recall-",
+    response: RESPONSE,
+  });
+  try {
+    await commentOn(page, { quote: "config", note: "keep this original note" });
+    await pasteImage(focusedNote(page));
+    await expect(cardImages(pendingCards(page))).toHaveCount(1);
+    await fillComposerDraft(page, "Please revise.");
+    await composerLocator(page).press("Enter");
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expect(assistantMessageText(page)).toHaveCount(2);
+    await expect(pendingCards(page)).toHaveCount(0);
+
+    await composerLocator(page).press("ArrowUp");
+    await expectComposerDraft(page, "Please revise.");
+    await expectNotes(page, ["keep this original note"]);
+    await expect(cardImages(pendingCards(page))).toHaveCount(1);
+    await expect(
+      historyRow(assistantMessageText(page).first()).getByTestId("output-comment-pending"),
+    ).toHaveCount(1);
+    await expect(
+      historyRow(assistantMessageText(page).last()).getByTestId("output-comment-pending"),
+    ).toHaveCount(0);
+    await composerPill(page).click();
+    await expect(focusedNote(page)).toHaveValue("keep this original note");
+    await expect(focusedNote(page)).toHaveCSS("color", "rgb(250, 250, 250)");
+    await page.screenshot({ path: testInfo.outputPath("dark-recalled-comments.png") });
+
+    for (const location of ["card", "tray"] as const) {
+      const container = location === "card" ? pendingCards(page).first() : composerTray(page);
+      const testId =
+        location === "card" ? "output-comment-image" : "composer-image-attachment-pill";
+      await removeAttachmentPill(container, testId, "Remove image attachment");
+      await expect(cardImages(pendingCards(page))).toHaveCount(0);
+      await removeAllComments(page);
+      await fillComposerDraft(page, "");
+      await composerLocator(page).press("ArrowUp");
+      await expectNotes(page, ["keep this original note"]);
+      await expect(cardImages(pendingCards(page)).locator("img")).toHaveJSProperty(
+        "naturalWidth",
+        1,
+      );
+    }
+
+    await composerLocator(page).press("Enter");
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expect(pendingCards(page)).toHaveCount(0);
+    await expect(
+      historyRow(assistantMessageText(page).first()).getByTestId("output-comment-delivered"),
+    ).toHaveCount(2);
+    await expect(
+      historyRow(assistantMessageText(page).nth(1)).getByTestId("output-comment-delivered"),
+    ).toHaveCount(0);
+    const sent = sentUserMessage(page, "Please revise.").last();
+    await sentCommentsToggle(sent).click();
+    const card = sentCommentCards(sent).last();
+    await expect(card.getByText(/^keep this original note/)).toHaveCSS(
+      "color",
+      "rgb(250, 250, 250)",
+    );
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("dark-sent-comments.png") });
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("a pending comment keeps its intermediate reply reachable when its turn finishes", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() =>
+    localStorage.setItem("@paseo:app-settings", JSON.stringify({ chatDisplay: "collapseTurns" })),
+  );
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "output-comments-fold-",
+    title: "Comments while folding",
+    model: "ten-second-stream",
+    initialPrompt: "Explain the scroll anchor.",
+  });
+  try {
+    await openAgentRoute(page, agent);
+    await expect(assistantMessageText(page).first()).toContainText("scroll anchor behavior", {
+      timeout: 30_000,
+    });
+    await commentOn(page, { quote: "scroll anchor behavior", note: "keep this visible" });
+    await agent.client.waitForFinish(agent.agentId, 30_000);
+    await expectNotes(page, ["keep this visible"]);
+    await expect(pendingCards(page)).toHaveCount(1);
+    await composerPill(page).click();
+    await expect(focusedNote(page)).toHaveValue("keep this visible");
+    await expect(focusedNote(page)).toBeInViewport();
+    await expect(assistantMessageText(page).first()).toContainText("scroll anchor behavior");
+  } finally {
+    await agent.cleanup();
   }
 });

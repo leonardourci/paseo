@@ -5,6 +5,7 @@ import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
 
 import {
   normalizeWorkspaceDescriptor,
+  selectAgentSentMessages,
   selectAgentTurnPresentation,
   selectAgentTimelineState,
   useSessionStore,
@@ -64,6 +65,8 @@ function createWorkspace(
   input: Partial<WorkspaceDescriptor> & Pick<WorkspaceDescriptor, "id">,
 ): WorkspaceDescriptor {
   return {
+    createdAt: null,
+    lastUserMessageAt: null,
     id: input.id,
     projectId: input.projectId ?? "project-1",
     projectDisplayName: input.projectDisplayName ?? "Project 1",
@@ -231,6 +234,60 @@ describe("agent timeline state", () => {
     expect(
       selectAgentTimelineState(useSessionStore.getState().sessions["test-server"], "agent-1"),
     ).toEqual({ status: "synced", items: [], range: null, older: "none", newer: "none" });
+  });
+
+  it("lists sent messages newest first, including the live head", () => {
+    initializeTestSession();
+    const sent = (id: string, text: string) => ({ ...submittedMessage(id), text });
+    useSessionStore.getState().applyAgentTimelineResponseState("test-server", "agent-1", {
+      items: [sent("m1", "fix the auth bug"), sent("m2", "add tests"), sent("m3", "add tests")],
+      head: [sent("m4", "  "), sent("m5", "refactor the wrong module")],
+      range: { epoch: "epoch-1", startSeq: 1, endSeq: 5 },
+      older: "none",
+      newer: false,
+      synchronized: true,
+      acknowledgedClientMessageIds: [],
+    });
+
+    expect(
+      selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"),
+    ).toEqual([
+      { message: sent("m5", "refactor the wrong module"), lastOutputId: undefined },
+      { message: sent("m3", "add tests"), lastOutputId: undefined },
+      { message: sent("m2", "add tests"), lastOutputId: undefined },
+      { message: sent("m1", "fix the auth bug"), lastOutputId: undefined },
+    ]);
+    expect(selectAgentSentMessages(undefined, "agent-1")).toEqual([]);
+  });
+
+  it("includes image-only messages from the tail and head in recall history", () => {
+    initializeTestSession();
+    const image = {
+      id: "image-1",
+      mimeType: "image/png",
+      storageType: "web-indexeddb" as const,
+      storageKey: "image-1",
+      createdAt: 0,
+    };
+    const tail = { ...submittedMessage("tail"), text: "", images: [image] };
+    const head = { ...submittedMessage("head"), text: "  ", images: [image] };
+    const empty = { ...submittedMessage("empty"), text: "", images: [] };
+    useSessionStore.getState().applyAgentTimelineResponseState("test-server", "agent-1", {
+      items: [tail, empty],
+      head: [head],
+      range: { epoch: "epoch-1", startSeq: 1, endSeq: 3 },
+      older: "none",
+      newer: false,
+      synchronized: true,
+      acknowledgedClientMessageIds: [],
+    });
+
+    expect(
+      selectAgentSentMessages(useSessionStore.getState().sessions["test-server"], "agent-1"),
+    ).toEqual([
+      { message: head, lastOutputId: undefined },
+      { message: tail, lastOutputId: undefined },
+    ]);
   });
 
   it("preserves older availability when an applied response leaves it unchanged", () => {

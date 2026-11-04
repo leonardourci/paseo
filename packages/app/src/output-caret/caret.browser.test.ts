@@ -8,6 +8,7 @@ import {
   focusOf,
   isOnNoteEdgeLine,
   isRowAheadUnmounted,
+  lastNoteInReply,
   latestReplyEnd,
   latestReplyStart,
   noteBetween,
@@ -28,6 +29,17 @@ const LINE_DOWN: SelectionMove = { direction: "forward", granularity: "line" };
 const LINE_UP: SelectionMove = { direction: "backward", granularity: "line" };
 const RIGHT: SelectionMove = { direction: "forward", granularity: "character" };
 const LEFT: SelectionMove = { direction: "backward", granularity: "character" };
+
+it("Up from the composer finds a note between the latest reply's paragraphs", () => {
+  const root = mountTranscript(
+    ["earlier", `${paragraph("old reply")}${PENDING_CARD_HTML}`],
+    ["latest", `${paragraph("before")}${PENDING_CARD_HTML}${paragraph("after")}`],
+  );
+  makeHost(root);
+  const end = latestReplyEnd(root);
+  expect(end).not.toBeNull();
+  expect(lastNoteInReply(end!)).toBe(root.querySelectorAll("textarea").item(1));
+});
 
 afterEach(() => {
   window.getSelection()?.removeAllRanges();

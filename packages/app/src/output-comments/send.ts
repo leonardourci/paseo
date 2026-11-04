@@ -37,6 +37,7 @@ interface QueuedText {
 }
 
 interface RestoredTextInput extends QueuedText {
+  requireOriginalSource?: boolean;
   /** The images coming back with the text, in send order. */
   imageIds: readonly string[];
 }
@@ -211,6 +212,7 @@ export function restoreOutgoingText({
   text,
   lastOutputId,
   imageIds,
+  requireOriginalSource = false,
 }: RestoredTextInput): RestoredMessage {
   const end = queuedOutputEnd(items, lastOutputId);
   const parsed = parseOutputComments(text);
@@ -218,7 +220,12 @@ export function restoreOutgoingText({
   const unresolved: OutputComment[] = [];
   for (const { position: _position, ...parsedComment } of parsed.comments) {
     const comment = end === null ? { ...parsedComment, messageOrdinal: undefined } : parsedComment;
-    const target = findCommentTarget({ items, end: end ?? items.length, comment });
+    const target = findCommentTarget({
+      items,
+      end: end ?? items.length,
+      comment,
+      requireOrdinal: requireOriginalSource,
+    });
     if (!target) {
       unresolved.push({ ...comment, messageOrdinal: undefined });
       continue;
